@@ -110,7 +110,7 @@ impl Gpio<Uninitialized> {
         }
     }
 
-    fn new_test(stack_ptr: *mut u32, pin: u8) -> Gpio<Uninitialized> {
+    pub fn new_test(stack_ptr: *mut u32, pin: u8) -> Gpio<Uninitialized> {
         if pin > 53 {
             panic!("Gpio::new(): pin {} exceeds maximum of 53", pin);
         }
@@ -194,7 +194,7 @@ impl Gpio<Input> {
     /// if the level is low.
     pub fn level(&mut self) -> bool {
         let index = self.pin_index();
-        let mask  = self.pin_mask();
+        let mask = self.pin_mask();
 
         (self.registers.LEV[index].read() & mask) == 0
     }

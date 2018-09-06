@@ -17,18 +17,19 @@ pub mod lang_items;
 pub mod mutex;
 pub mod shell;
 
-use pi::timer::spin_sleep_ms;
-use pi::gpio::Gpio;
+use pi::timer;
+use pi::uart::MiniUart;
 
 #[no_mangle]
 pub extern "C" fn kmain() {
-    let mut gpio = Gpio::new(16).into_output();
-
+    // let mut uart = MiniUart::new();
 
     loop {
-        gpio.set();
-        spin_sleep_ms(5000);
-        gpio.clear();
-        spin_sleep_ms(5000);
+        // let byte = uart.read_byte();
+        // uart.write_byte(byte);
+        // uart.write_byte(b'-');
+        // uart.write_byte(b'>');
+
+        timer::spin_sleep_ms(1000);
     }
 }
