@@ -75,6 +75,9 @@ clean:
 	$(XARGO) clean
 	rm -rf $(BUILD_DIR)
 
-copy:
+copy: all
 	rm -f $(SD_KERNEL)
 	cp $(KERNEL).bin $(SD_KERNEL)
+
+umount:
+	diskutil umount $(SD_CARD)
