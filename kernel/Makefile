@@ -19,9 +19,11 @@ EXT_DEPS = $(BUILD_DIR)/init.o
 
 BUILD_DIR := build
 KERNEL := $(BUILD_DIR)/$(RUST_BINARY)
+SD_CARD := /Volumes/NO\ NAME
+SD_KERNEL := $(SD_CARD)/kernel8.img
 RUST_LIB := $(BUILD_DIR)/$(RUST_BINARY).a
 
-.PHONY: all clean check
+.PHONY: all clean check copy
 
 VPATH = ext
 
@@ -72,3 +74,7 @@ $(KERNEL).bin: $(KERNEL).elf | $(BUILD_DIR)
 clean:
 	$(XARGO) clean
 	rm -rf $(BUILD_DIR)
+
+copy:
+	rm -f $(SD_KERNEL)
+	cp $(KERNEL).bin $(SD_KERNEL)
