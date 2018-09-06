@@ -1,8 +1,8 @@
 use core::marker::PhantomData;
 
-use common::{IO_BASE, states};
+use common::{states, IO_BASE};
 use volatile::prelude::*;
-use volatile::{Volatile, WriteVolatile, ReadVolatile, Reserved};
+use volatile::{ReadVolatile, Reserved, Volatile, WriteVolatile};
 
 /// An alternative GPIO function.
 #[repr(u8)]
@@ -14,11 +14,12 @@ pub enum Function {
     Alt2 = 0b110,
     Alt3 = 0b111,
     Alt4 = 0b011,
-    Alt5 = 0b010
+    Alt5 = 0b010,
 }
 
 #[repr(C)]
 #[allow(non_snake_case)]
+#[derive(Debug)]
 struct Registers {
     FSEL: [Volatile<u32>; 6],
     __r0: Reserved<u32>,
@@ -61,7 +62,7 @@ states! {
 pub struct Gpio<State> {
     pin: u8,
     registers: &'static mut Registers,
-    _state: PhantomData<State>
+    _state: PhantomData<State>,
 }
 
 /// The base address of the `GPIO` registers.
@@ -76,8 +77,18 @@ impl<T> Gpio<T> {
         Gpio {
             pin: self.pin,
             registers: self.registers,
-            _state: PhantomData
+            _state: PhantomData,
         }
+    }
+
+    #[inline]
+    fn pin_index(&self) -> usize {
+        (self.pin as usize) / 32
+    }
+
+    #[inline]
+    fn pin_mask(&self) -> u32 {
+        (1 as u32) << ((self.pin as u32) % 32)
     }
 }
 
@@ -95,14 +106,58 @@ impl Gpio<Uninitialized> {
         Gpio {
             registers: unsafe { &mut *(GPIO_BASE as *mut Registers) },
             pin: pin,
-            _state: PhantomData
+            _state: PhantomData,
         }
+    }
+
+    fn new_test(stack_ptr: *mut u32, pin: u8) -> Gpio<Uninitialized> {
+        if pin > 53 {
+            panic!("Gpio::new(): pin {} exceeds maximum of 53", pin);
+        }
+
+        Gpio {
+            registers: unsafe { &mut *(stack_ptr as *mut Registers) },
+            pin: pin,
+            _state: PhantomData,
+        }
+    }
+
+    #[inline]
+    fn fsel_reg_index(&self) -> usize {
+        (self.pin as usize) / 10
+    }
+
+    #[inline]
+    fn fsel_reg_shift(&self) -> u32 {
+        ((self.pin as u32) % 10) * 3
+    }
+
+    #[inline]
+    fn fsel_set_function_bits(reg: u32, bits: u32, shift: u32) -> u32 {
+        let mask: u32 = !(0b111 << shift);
+        (reg & mask) | (bits << shift)
+    }
+
+    fn write_fsel(&mut self, function: Function) {
+        let index = self.fsel_reg_index();
+        let shift = self.fsel_reg_shift();
+
+        let val = self.registers.FSEL[index].read();
+        let val = Gpio::fsel_set_function_bits(val, function as u32, shift);
+
+        self.registers.FSEL[index].write(val);
     }
 
     /// Enables the alternative function `function` for `self`. Consumes self
     /// and returns a `Gpio` structure in the `Alt` state.
-    pub fn into_alt(self, function: Function) -> Gpio<Alt> {
-        unimplemented!()
+    pub fn into_alt(mut self, function: Function) -> Gpio<Alt> {
+        self.write_fsel(function);
+
+        Gpio {
+            pin: self.pin,
+            registers: self.registers,
+            _state: PhantomData,
+        }
     }
 
     /// Sets this pin to be an _output_ pin. Consumes self and returns a `Gpio`
@@ -119,14 +174,18 @@ impl Gpio<Uninitialized> {
 }
 
 impl Gpio<Output> {
-    /// Sets (turns on) the pin.
     pub fn set(&mut self) {
-        unimplemented!()
+        let index = self.pin_index();
+        let mask = self.pin_mask();
+
+        self.registers.SET[index].write(mask);
     }
 
-    /// Clears (turns off) the pin.
     pub fn clear(&mut self) {
-        unimplemented!()
+        let index = self.pin_index();
+        let mask = self.pin_mask();
+
+        self.registers.CLR[index].write(mask);
     }
 }
 
@@ -134,6 +193,29 @@ impl Gpio<Input> {
     /// Reads the pin's value. Returns `true` if the level is high and `false`
     /// if the level is low.
     pub fn level(&mut self) -> bool {
-        unimplemented!()
+        let index = self.pin_index();
+        let mask  = self.pin_mask();
+
+        (self.registers.LEV[index].read() & mask) == 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanity_check() {
+        let mut registers: [u32; 41] = [0; 41];
+        let ptr: *mut u32 = &mut registers[0] as *mut u32;
+
+        let mut gpio = Gpio::new_test(ptr, 16).into_output();
+        assert_eq!(registers[1], 0x00040000);
+
+        gpio.set();
+        assert_eq!(registers[7], 0x00010000);
+
+        gpio.clear();
+        assert_eq!(registers[10], 0x00010000);
     }
 }
