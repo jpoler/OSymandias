@@ -17,13 +17,14 @@ RUST_RELEASE_LIB := $(RUST_BUILD_DIR)/release/lib$(RUST_BINARY).a
 RUST_DEPS = Xargo.toml Cargo.toml build.rs $(LD_LAYOUT) src/*
 EXT_DEPS = $(BUILD_DIR)/init.o
 
+FIRMWARE_DIR := ../files/firmware
 BUILD_DIR := build
 KERNEL := $(BUILD_DIR)/$(RUST_BINARY)
-SD_CARD := /Volumes/NO\ NAME
+SD_CARD := /Volumes/boot
 SD_KERNEL := $(SD_CARD)/kernel8.img
 RUST_LIB := $(BUILD_DIR)/$(RUST_BINARY).a
 
-.PHONY: all clean check copy
+.PHONY: all clean check copy copy-umount
 
 VPATH = ext
 
@@ -75,9 +76,17 @@ clean:
 	$(XARGO) clean
 	rm -rf $(BUILD_DIR)
 
-copy: all
+clean-sd:
+	rm -rf $(SD_CARD)/*
+
+copy-firmware:
+	cp $(FIRMWARE_DIR)/* $(SD_CARD)
+
+copy: all clean-sd copy-firmware
 	rm -f $(SD_KERNEL)
 	cp $(KERNEL).bin $(SD_KERNEL)
 
 umount:
 	diskutil umount $(SD_CARD)
+
+copy-umount: copy umount
