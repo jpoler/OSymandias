@@ -22,14 +22,10 @@ use pi::uart::MiniUart;
 
 #[no_mangle]
 pub extern "C" fn kmain() {
-    // let mut uart = MiniUart::new();
+    let mut uart = MiniUart::new();
 
     loop {
-        // let byte = uart.read_byte();
-        // uart.write_byte(byte);
-        // uart.write_byte(b'-');
-        // uart.write_byte(b'>');
-
-        timer::spin_sleep_ms(1000);
+        let byte = uart.read_byte();
+        uart.write_byte(byte);
     }
 }

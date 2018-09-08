@@ -4,7 +4,7 @@ use volatile::prelude::*;
 use volatile::{ReadVolatile, Volatile};
 
 use common::IO_BASE;
-use gpio::{Function, Gpio};
+use gpio::{Alt, Function, Gpio};
 use timer;
 
 /// The base address for the `MU` registers.
@@ -23,13 +23,17 @@ enum LsrStatus {
 #[repr(u32)]
 enum LcrSettings {
     DataSize8Bit = 0b11,
-    DlabAccess = 1 << 7,
 }
 
 #[repr(u32)]
 enum CntlSettings {
     EnableRx = 1,
     EnableTx = 1 << 1,
+}
+
+#[repr(u32)]
+enum IirSettings {
+    ClearFifo = 0b11,
 }
 
 #[repr(C)]
@@ -63,9 +67,9 @@ impl MiniUart {
     /// By default, reads will never time out. To set a read timeout, use
     /// `set_read_timeout()`.
     pub fn new() -> MiniUart {
-        Gpio::new(14).into_alt(Function::Alt5);
-        Gpio::new(15).into_alt(Function::Alt5);
-        MiniUart::new_inner(AUX_ENABLES, MU_REG_BASE)
+        let gpio14 = Gpio::new(14).into_alt(Function::Alt5);
+        let gpio15 = Gpio::new(15).into_alt(Function::Alt5);
+        MiniUart::new_inner(AUX_ENABLES, MU_REG_BASE, gpio14, gpio15)
     }
 
     pub fn new_test(stack_ptr: &mut [u32; 53]) -> MiniUart {
@@ -73,13 +77,18 @@ impl MiniUart {
         let aux_enable_ptr = (&mut stack_ptr[41] as *mut u32) as usize;
         let uart_ptr = (&mut stack_ptr[42] as *mut u32) as usize;
 
-        Gpio::new_test(gpio_ptr, 14).into_alt(Function::Alt5);
-        Gpio::new_test(gpio_ptr, 15).into_alt(Function::Alt5);
+        let gpio14 = Gpio::new_test(gpio_ptr, 14).into_alt(Function::Alt5);
+        let gpio15 = Gpio::new_test(gpio_ptr, 15).into_alt(Function::Alt5);
 
-        MiniUart::new_inner(aux_enable_ptr, uart_ptr)
+        MiniUart::new_inner(aux_enable_ptr, uart_ptr, gpio14, gpio15)
     }
 
-    fn new_inner(aux_enables: usize, registers_ptr: usize) -> MiniUart {
+    fn new_inner(
+        aux_enables: usize,
+        registers_ptr: usize,
+        mut gpio14: Gpio<Alt>,
+        mut gpio15: Gpio<Alt>,
+    ) -> MiniUart {
         // The `AUXENB` register from page 9 of the BCM2837 documentation.
         let aux_enables: *mut Volatile<u8> = aux_enables as *mut Volatile<u8>;
 
@@ -90,18 +99,29 @@ impl MiniUart {
         };
 
         // 8 bit mode
+        // clear interrupts
+        registers.IER.write(0x0);
+
+        // turn off transmit / receive
+        registers.CNTL.write(0x0);
+
         registers.LCR.or_mask(LcrSettings::DataSize8Bit as u32);
 
-        // enable access to the baudrate register
-        registers.LCR.or_mask(LcrSettings::DlabAccess as u32);
+        // clear flow control and more importantly tx and rx
+        registers.MCR.write(0x0);
 
-        // TODO if you are getting garbage out of the UART check here first
+        // idk why this is here, ask
+        registers.IER.write(0x0);
+
+        // clear tx fifo
+        registers.IIR.write(IirSettings::ClearFifo as u32);
+
         // set baud rate to 250e6 / 8*(270+1) ~= 115200
         registers.BAUD.write(270);
 
-        // disable access to the baudrate registers, which must be cleared
-        // during operation
-        registers.LCR.and_mask(!(LcrSettings::DlabAccess as u32));
+        // disable pull-up/pull-down on both pins
+        gpio14.disable_pull_up_down();
+        gpio15.disable_pull_up_down();
 
         // enable tx and rx
         registers
@@ -121,7 +141,7 @@ impl MiniUart {
 
     #[inline]
     fn write_fifo_full(&self) -> bool {
-        self.registers.LSR.read() & (LsrStatus::TxAvailable as u32) != 0
+        self.registers.LSR.read() & (LsrStatus::TxAvailable as u32) == 0
     }
 
     /// Write the byte `byte`. This method blocks until there is space available
@@ -181,6 +201,9 @@ impl MiniUart {
 
     /// Reads a byte. Blocks indefinitely until a byte is ready to be read.
     pub fn read_byte(&mut self) -> u8 {
+        while !self.has_byte() {
+            timer::spin_sleep_us(10);
+        }
         self.registers.IO.read() as u8
     }
 }
@@ -271,26 +294,43 @@ mod tests {
 
     impl fmt::Debug for TestStack {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            write!(f, "gpio registers:\n");
-            for (i, reg) in self.stack[..41].iter().enumerate() {
-                write!(f, "\t[{}]\t{:#010x}\n", i, reg);
+            write!(f, "gpio registers:\n")?;
+            let mut v = (0..50)
+                .scan(0, |state, _| {
+                    let tmp = *state;
+                    *state += 10;
+                    if *state > 49 {
+                        *state -= 49
+                    }
+                    Some(tmp as usize)
+                }).collect::<Vec<_>>();
+            let mut iter = v.chunks(5);
+            for chunk in iter {
+                write!(f, "\t")?;
+                for &i in chunk {
+                    if i < 41 {
+                        write!(f, "[{}]\t{:#010x}\t", i, self.stack[i])?;
+                    }
+                }
+                write!(f, "\n")?;
             }
 
-            write!(f, "\naux enable register:\n");
-            write!(f, "\t\t{:#010x}\n", self.stack[41]);
+            write!(f, "\naux enable register:\n")?;
+            write!(f, "\t\t{:#010x}\n", self.stack[41])?;
 
-            write!(f, "\nuart registers: \n");
+            write!(f, "\nuart registers: \n")?;
             for (i, reg) in self.stack[42..].iter().enumerate() {
-                write!(f, "\t[{}]\t{:#010x}\n", i, reg);
+                write!(f, "\t[{}]\t{:#010x}\n", i, reg)?;
             }
             Ok(())
         }
     }
 
     #[test]
-    fn sanity_check() {
+    fn uart() {
         let mut stack_space = TestStack::new();
         let mut uart = MiniUart::new_test(&mut stack_space.stack);
+        assert_eq!(stack_space.stack[41], 0x1);
 
         println!("{:?}", stack_space);
     }

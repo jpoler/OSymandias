@@ -1,3 +1,4 @@
+#[feature(asm)]
 use core::marker::PhantomData;
 
 use common::{states, IO_BASE};
@@ -88,7 +89,7 @@ impl<T> Gpio<T> {
 
     #[inline]
     fn pin_mask(&self) -> u32 {
-        (1 as u32) << ((self.pin as u32) % 32)
+        1 << ((self.pin as u32) % 32)
     }
 }
 
@@ -197,6 +198,21 @@ impl Gpio<Input> {
         let mask = self.pin_mask();
 
         (self.registers.LEV[index].read() & mask) == 0
+    }
+}
+
+impl Gpio<Alt> {
+    pub fn disable_pull_up_down(&mut self) {
+        self.registers.PUD.write(0);
+        for _ in 0..150 {
+            unsafe { asm!("NOP") }
+        }
+        let pin_mask = self.pin_mask();
+        self.registers.PUDCLK[0].or_mask(pin_mask);
+        for _ in 0..150 {
+            unsafe { asm!("NOP") }
+        }
+        self.registers.PUDCLK[0].write(0);
     }
 }
 
