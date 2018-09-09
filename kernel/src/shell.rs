@@ -1,6 +1,7 @@
-use self::builtins::{echo, resolve_builtin};
+use self::builtins::resolve_builtin;
 use console::{_print, CONSOLE};
 use stack_vec::StackVec;
+use std::fmt;
 use std::io;
 use std::str::from_utf8;
 
@@ -10,11 +11,11 @@ mod builtins {
     pub fn resolve_builtin(cmd: &str) -> Option<fn(&mut [&str])> {
         match cmd {
             "echo" => Some(echo),
-            cmd => None,
+            _ => None,
         }
     }
 
-    pub fn echo(args: &mut [&str]) {
+    fn echo(args: &mut [&str]) {
         let args = &args[1..];
         if args.len() == 0 {
             kprintln!("");
@@ -34,6 +35,7 @@ enum Error {
     TooManyArgs,
     LineTooLong,
     UnknownCommand,
+    InvalidUtf8,
     Io { error: io::Error },
 }
 
@@ -43,7 +45,23 @@ impl From<io::Error> for Error {
     }
 }
 
-struct BufferedIo {}
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::Error::*;
+        match self {
+            &Empty => write!(f, "empty command"),
+            &TooManyArgs => write!(f, "too many arguments"),
+            &LineTooLong => write!(f, "line too long"),
+            // TODO this should have the command name but would require heap
+            // allocation
+            &UnknownCommand => write!(f, "unknown command"),
+            &InvalidUtf8 => write!(f, "invalid utf8"),
+            &Io { ref error } => write!(f, "{}", error),
+        }
+    }
+}
+
+struct BufferedIo;
 
 impl BufferedIo {
     fn new() -> BufferedIo {
@@ -120,54 +138,34 @@ impl<'a> Command<'a> {
     }
 }
 
+fn eval(prefix: &str) -> Result<(), Error> {
+    let mut bufio = BufferedIo::new();
+    let mut line: [u8; 512] = [0; 512];
+    let mut args: [&str; 64] = [""; 64];
+
+    kprint!("{}", prefix);
+
+    let n = match bufio.readline(&mut line)? {
+        0 => return Ok(()),
+        n => n,
+    };
+
+    let cmd_str = from_utf8(&mut line[..n]).map_err(|_| Error::InvalidUtf8)?;
+    let mut cmd = Command::parse(cmd_str, &mut args)?;
+
+    let f = resolve_builtin(cmd.path()).ok_or(Error::UnknownCommand)?;
+
+    f(&mut cmd.args[..]);
+
+    Ok(())
+}
+
 /// Starts a shell using `prefix` as the prefix for each line. This function
 /// never returns: it is perpetually in a shell loop.
 pub fn shell(prefix: &str) -> ! {
     loop {
-        let mut bufio = BufferedIo::new();
-        let mut line: [u8; 512] = [0; 512];
-        let mut args: [&str; 64] = [""; 64];
-
-        kprint!("{}", prefix);
-        let n = match bufio.readline(&mut line) {
-            Ok(0) => continue,
-            Ok(n) => n,
-            Err(err) => {
-                match err {
-                    Error::LineTooLong => kprintln!("error: line longer than 512 bytes"),
-                    Error::Io { error } => kprintln!("io error: {}", error),
-                    _ => kprintln!("error: {:?}", err),
-                }
-                continue;
-            }
-        };
-
-        // validate command
-
-        let cmd_str = match from_utf8(&mut line[..n]) {
-            Ok(s) => s,
-            Err(err) => {
-                kprintln!("error: not a valid utf8 string");
-                continue;
-            }
-        };
-
-        let mut cmd = match Command::parse(cmd_str, &mut args) {
-            Ok(cmd) => cmd,
-            Err(err) => {
-                match err {
-                    Error::TooManyArgs => kprintln!("error: too many arguments"),
-                    Error::Empty => unreachable!(),
-                    _ => kprintln!("error: {:?}", err),
-                };
-                continue;
-            }
-        };
-
-        // execute command
-        match resolve_builtin(cmd.path()) {
-            Some(f) => f(&mut cmd.args),
-            None => kprintln!("unknown command: {}", cmd.path()),
+        if let Err(err) = eval(prefix) {
+            kprintln!("\nerror: {}", err)
         }
     }
 }

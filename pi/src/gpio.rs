@@ -1,4 +1,3 @@
-#[feature(asm)]
 use core::marker::PhantomData;
 
 use common::{states, IO_BASE};

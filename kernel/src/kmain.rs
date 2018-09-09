@@ -17,10 +17,6 @@ pub mod lang_items;
 pub mod mutex;
 pub mod shell;
 
-use console::_print;
-use pi::timer;
-use pi::uart::MiniUart;
-
 #[no_mangle]
 pub extern "C" fn kmain() {
     shell::shell("> ");
