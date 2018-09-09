@@ -134,9 +134,9 @@ pub fn shell(prefix: &str) -> ! {
             Ok(n) => n,
             Err(err) => {
                 match err {
-                    Error::LineTooLong => kprintln!("\nerror: line longer than 512 bytes"),
+                    Error::LineTooLong => kprintln!("error: line longer than 512 bytes"),
                     Error::Io { error } => kprintln!("io error: {}", error),
-                    _ => kprintln!("\nerror: {:?}", err),
+                    _ => kprintln!("error: {:?}", err),
                 }
                 continue;
             }
