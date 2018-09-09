@@ -1,6 +1,31 @@
+use self::builtins::{echo, resolve_builtin};
 use console::{_print, CONSOLE};
 use stack_vec::StackVec;
-use std::io::{self, Read, Write};
+use std::io;
+use std::str::from_utf8;
+
+mod builtins {
+    use console::_print;
+
+    pub fn resolve_builtin(cmd: &str) -> Option<fn(&mut [&str])> {
+        match cmd {
+            "echo" => Some(echo),
+            cmd => None,
+        }
+    }
+
+    pub fn echo(args: &mut [&str]) {
+        let args = &args[1..];
+        if args.len() == 0 {
+            kprintln!("");
+        } else {
+            for arg in &args[..args.len() - 1] {
+                kprint!("{} ", arg);
+            }
+            kprintln!("{}", args[args.len() - 1])
+        }
+    }
+}
 
 /// Error type for `Command` parse failures.
 #[derive(Debug)]
@@ -8,6 +33,7 @@ enum Error {
     Empty,
     TooManyArgs,
     LineTooLong,
+    UnknownCommand,
     Io { error: io::Error },
 }
 
@@ -89,30 +115,59 @@ impl<'a> Command<'a> {
     }
 
     /// Returns this command's path. This is equivalent to the first argument.
-    fn path(&self) -> Option<&str> {
-        if self.args.len() > 1 {
-            Some(self.args.as_slice()[0])
-        } else {
-            None
-        }
+    fn path(&self) -> &str {
+        self.args[0]
     }
 }
 
 /// Starts a shell using `prefix` as the prefix for each line. This function
 /// never returns: it is perpetually in a shell loop.
 pub fn shell(prefix: &str) -> ! {
-    let mut bufio = BufferedIo::new();
-    let mut line_buf: [u8; 512] = [0; 512];
-
     loop {
-        // read a line
-        kprint!("\n{}", prefix);
-        match bufio.readline(&mut line_buf) {
-            Ok(n) => kprintln!("line of length: {}", n),
-            Err(err) => kprintln!("\nerror: {:?}", err),
-        }
+        let mut bufio = BufferedIo::new();
+        let mut line: [u8; 512] = [0; 512];
+        let mut args: [&str; 64] = [""; 64];
+
+        kprint!("{}", prefix);
+        let n = match bufio.readline(&mut line) {
+            Ok(0) => continue,
+            Ok(n) => n,
+            Err(err) => {
+                match err {
+                    Error::LineTooLong => kprintln!("\nerror: line longer than 512 bytes"),
+                    Error::Io { error } => kprintln!("io error: {}", error),
+                    _ => kprintln!("\nerror: {:?}", err),
+                }
+                continue;
+            }
+        };
 
         // validate command
+
+        let cmd_str = match from_utf8(&mut line[..n]) {
+            Ok(s) => s,
+            Err(err) => {
+                kprintln!("error: not a valid utf8 string");
+                continue;
+            }
+        };
+
+        let mut cmd = match Command::parse(cmd_str, &mut args) {
+            Ok(cmd) => cmd,
+            Err(err) => {
+                match err {
+                    Error::TooManyArgs => kprintln!("error: too many arguments"),
+                    Error::Empty => unreachable!(),
+                    _ => kprintln!("error: {:?}", err),
+                };
+                continue;
+            }
+        };
+
         // execute command
+        match resolve_builtin(cmd.path()) {
+            Some(f) => f(&mut cmd.args),
+            None => kprintln!("unknown command: {}", cmd.path()),
+        }
     }
 }
