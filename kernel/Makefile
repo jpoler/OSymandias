@@ -24,7 +24,7 @@ SD_CARD := /Volumes/boot
 SD_KERNEL := $(SD_CARD)/kernel8.img
 RUST_LIB := $(BUILD_DIR)/$(RUST_BINARY).a
 
-.PHONY: all clean check copy copy-umount
+.PHONY: all clean check copy copy-umount watch
 
 VPATH = ext
 
