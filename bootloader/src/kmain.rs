@@ -19,11 +19,46 @@ const MAX_BINARY_SIZE: usize = BOOTLOADER_START_ADDR - BINARY_START_ADDR;
 fn jump_to(addr: *mut u8) -> ! {
     unsafe {
         asm!("br $0" : : "r"(addr as usize));
-        loop { asm!("nop" :::: "volatile")  }
+        loop {
+            asm!("nop" :::: "volatile")
+        }
     }
 }
 
 #[no_mangle]
 pub extern "C" fn kmain() {
-    // FIXME: Implement the bootloader.
+    let err;
+    loop {
+        let mut uart = MiniUart::new();
+        uart.read_byte();
+        let mut binary = unsafe { slice::from_raw_parts_mut(BINARY_START, MAX_BINARY_SIZE) };
+        let n = match Xmodem::receive(uart, &mut binary) {
+            Ok(n) => n,
+            Err(error) => match error.kind() {
+                ErrorKind::TimedOut => continue,
+                _ => {
+                    err = error;
+                    break;
+                }
+            },
+            // Err(error) => continue,
+        };
+
+        if n > 0 && n < MAX_BINARY_SIZE {
+            jump_to(BINARY_START);
+        }
+    }
+
+    let mut uart = MiniUart::new();
+    loop {
+        timer::spin_sleep_ms(1000);
+        write!(&mut uart, "{}\n", err);
+        unsafe {
+            write!(&mut uart, "{:?}", &DEBUG_BUFFER[..DEBUG_BUFFER_OFFSET]);
+        }
+    }
 }
+
+// I'ma let you finish, but try just opening a uart connection and see if 248
+// comes in, if so it might be the serial library or something about connection
+// establishment.

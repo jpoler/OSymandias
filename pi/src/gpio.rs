@@ -204,12 +204,12 @@ impl Gpio<Alt> {
     pub fn disable_pull_up_down(&mut self) {
         self.registers.PUD.write(0);
         for _ in 0..150 {
-            unsafe { asm!("NOP") }
+            unsafe { asm!("nop" :::: "volatile") }
         }
         let pin_mask = self.pin_mask();
         self.registers.PUDCLK[0].or_mask(pin_mask);
         for _ in 0..150 {
-            unsafe { asm!("NOP") }
+            unsafe { asm!("nop" :::: "volatile") }
         }
         self.registers.PUDCLK[0].write(0);
     }
