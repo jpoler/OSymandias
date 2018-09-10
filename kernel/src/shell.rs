@@ -52,8 +52,6 @@ impl fmt::Display for Error {
             &Empty => write!(f, "empty command"),
             &TooManyArgs => write!(f, "too many arguments"),
             &LineTooLong => write!(f, "line too long"),
-            // TODO this should have the command name but would require heap
-            // allocation
             &UnknownCommand => write!(f, "unknown command"),
             &InvalidUtf8 => write!(f, "invalid utf8"),
             &Io { ref error } => write!(f, "{}", error),
