@@ -268,7 +268,7 @@ mod uart_io {
 
         // TODO figure out if flush should timeout
         fn flush(&mut self) -> io::Result<()> {
-            while (self.registers.LSR.read() & (LsrStatus::TxIdle as u32)) != 0 {
+            while (self.registers.LSR.read() & (LsrStatus::TxIdle as u32)) != 1 {
                 timer::spin_sleep_us(10);
             }
 
