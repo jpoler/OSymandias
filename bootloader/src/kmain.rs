@@ -1,7 +1,14 @@
 #![feature(asm, lang_items)]
 
-extern crate xmodem;
 extern crate pi;
+extern crate xmodem;
+
+use pi::timer;
+use pi::uart::MiniUart;
+use std::fmt::Write;
+use std::io::ErrorKind;
+use std::slice;
+use xmodem::{Xmodem, DEBUG_BUFFER, DEBUG_BUFFER_OFFSET};
 
 pub mod lang_items;
 
