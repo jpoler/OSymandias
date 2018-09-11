@@ -33,7 +33,8 @@ enum CntlSettings {
 
 #[repr(u32)]
 enum IirSettings {
-    ClearFifo = 0b11,
+    ClearRxFifo = 1 << 1,
+    ClearTxFifo = 1 << 2,
 }
 
 #[repr(C)]
@@ -98,13 +99,13 @@ impl MiniUart {
             &mut *(registers_ptr as *mut Registers)
         };
 
-        // 8 bit mode
         // clear interrupts
         registers.IER.write(0x0);
 
         // turn off transmit / receive
         registers.CNTL.write(0x0);
 
+        // 8 bit mode
         registers.LCR.or_mask(LcrSettings::DataSize8Bit as u32);
 
         // clear flow control and more importantly tx and rx
@@ -113,8 +114,10 @@ impl MiniUart {
         // idk why this is here, ask
         registers.IER.write(0x0);
 
-        // clear tx fifo
-        registers.IIR.write(IirSettings::ClearFifo as u32);
+        // clear tx/rx fifo
+        registers
+            .IIR
+            .write(IirSettings::ClearRxFifo as u32 | IirSettings::ClearTxFifo as u32);
 
         // set baud rate to 250e6 / 8*(270+1) ~= 115200
         registers.BAUD.write(270);
@@ -172,7 +175,7 @@ impl MiniUart {
         if let Some(milliseconds) = self.timeout {
             let microseconds = (milliseconds * 1000) as u64;
             let deadline = timer::current_time() + microseconds;
-            while deadline - timer::current_time() > 0 {
+            while deadline > timer::current_time() {
                 if self.has_byte() {
                     return Ok(());
                 }
