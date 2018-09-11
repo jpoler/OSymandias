@@ -18,10 +18,12 @@ RUST_DEPS = Xargo.toml Cargo.toml build.rs $(LD_LAYOUT) src/*
 EXT_DEPS = $(BUILD_DIR)/init.o
 
 BUILD_DIR := build
+SD_CARD := /Volumes/boot
+SD_KERNEL := $(SD_CARD)/kernel8.img
 KERNEL := $(BUILD_DIR)/$(RUST_BINARY)
 RUST_LIB := $(BUILD_DIR)/$(RUST_BINARY).a
 
-.PHONY: all clean check
+.PHONY: all clean check copy-cfg copy-kernel umount copy-umount
 
 VPATH = ext
 
@@ -72,3 +74,16 @@ $(KERNEL).bin: $(KERNEL).elf | $(BUILD_DIR)
 clean:
 	$(XARGO) clean
 	rm -rf $(BUILD_DIR)
+
+copy-cfg:
+	rm -f $(SD_CARD)/config.txt
+	cp ext/config.txt $(SD_CARD)/config.txt
+
+copy-kernel:
+	rm -f $(SD_KERNEL)
+	cp $(KERNEL).bin $(SD_KERNEL)
+
+umount:
+	diskutil umount $(SD_CARD)
+
+copy-umount: clean all copy-cfg copy-kernel umount
