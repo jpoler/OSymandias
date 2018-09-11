@@ -65,7 +65,3 @@ pub extern "C" fn kmain() {
         }
     }
 }
-
-// I'ma let you finish, but try just opening a uart connection and see if 248
-// comes in, if so it might be the serial library or something about connection
-// establishment.
