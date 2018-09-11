@@ -29,7 +29,6 @@ KERNEL := $(BUILD_DIR)/$(RUST_BINARY)
 SD_CARD := /Volumes/boot
 SD_KERNEL := $(SD_CARD)/kernel8.img
 RUST_LIB := $(BUILD_DIR)/$(RUST_BINARY).a
-UART := /dev/tty.SLAB_USBtoUART
 
 .PHONY: all test clean check copy copy-umount watch install
 
@@ -44,7 +43,7 @@ test:
 	@$(CARGO) test
 
 install: $(KERNEL).bin
-	$(TTYWRITE) -i $< $(PI_TTY)
+	$(TTYWRITE) -m write -t 60 -i $< $(PI_TTY)
 
 $(RUST_DEBUG_LIB): $(RUST_DEPS)
 	@echo "+ Building $@ [xargo]"
@@ -103,6 +102,3 @@ umount:
 	diskutil umount $(SD_CARD)
 
 copy-umount: copy umount
-
-bootload: clean all
-	ttywrite -m write -i $(KERNEL).bin -t 60 $(UART)
