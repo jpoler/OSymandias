@@ -23,6 +23,7 @@ KERNEL := $(BUILD_DIR)/$(RUST_BINARY)
 SD_CARD := /Volumes/boot
 SD_KERNEL := $(SD_CARD)/kernel8.img
 RUST_LIB := $(BUILD_DIR)/$(RUST_BINARY).a
+UART := /dev/tty.SLAB_USBtoUART
 
 .PHONY: all clean check copy copy-umount watch
 
@@ -90,3 +91,6 @@ umount:
 	diskutil umount $(SD_CARD)
 
 copy-umount: copy umount
+
+bootload: clean all
+	ttywrite -m write -i $(KERNEL).bin -t 60 $(UART)
