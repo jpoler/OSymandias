@@ -48,7 +48,6 @@ pub extern "C" fn kmain() {
                     break;
                 }
             },
-            // Err(error) => continue,
         };
 
         if n > 0 && n < MAX_BINARY_SIZE {
@@ -59,9 +58,9 @@ pub extern "C" fn kmain() {
     let mut uart = MiniUart::new();
     loop {
         timer::spin_sleep_ms(1000);
-        write!(&mut uart, "{}\n", err);
+        write!(&mut uart, "{}\n", err).unwrap();
         unsafe {
-            write!(&mut uart, "{:?}", &DEBUG_BUFFER[..DEBUG_BUFFER_OFFSET]);
+            write!(&mut uart, "{:?}", &DEBUG_BUFFER[..DEBUG_BUFFER_OFFSET]).unwrap();
         }
     }
 }
