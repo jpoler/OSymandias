@@ -189,7 +189,7 @@ impl Allocator {
                     let cbh = unsafe { BlockHeader::from_ptr(cur_ptr) };
                     if pbh.is_adjacent(cbh) && pbh.equal_size(cbh) && pbh.aligned_on(2 * pbh.size) {
                         pbh.head.pop();
-                        pbh.size *= 2;
+                        pbh.size <<= 1;
                     }
                 }
                 Some(cur_ptr)
