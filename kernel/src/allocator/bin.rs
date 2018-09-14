@@ -40,6 +40,7 @@ impl BlockHeader {
     unsafe fn new_from_ptr(ptr: usize) -> &'static mut BlockHeader {
         let block_header = &mut *(ptr as *mut usize as *mut BlockHeader);
         let mut head_ptr = &mut block_header.head as *mut LinkedList as *mut usize;
+        // this might require volatile
         head_ptr = ptr::null_mut();
         block_header.size = 0;
         block_header
@@ -63,6 +64,21 @@ impl BlockHeader {
     #[inline]
     fn matches_contains(&self, layout: &Layout) -> bool {
         self.size > layout.size() && self.addr() % layout.align() == 0
+    }
+
+    #[inline]
+    fn is_adjacent(&self, other: &BlockHeader) -> bool {
+        self.addr().saturating_add(self.size) == other.addr()
+    }
+
+    #[inline]
+    fn equal_size(&self, other: &BlockHeader) -> bool {
+        self.size == other.size
+    }
+
+    #[inline]
+    fn aligned_on(&self, align: usize) -> bool {
+        self.addr() % align == 0
     }
 
     fn debug(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -110,10 +126,12 @@ impl Allocator {
         unsafe { head.push(block_header.addr() as *mut usize) };
 
         let mut allocator = Allocator { start, end, head };
-        kprintln!("before divide: {:?}", allocator.head);
         allocator.divide_maximally();
-        kprintln!("after divide: {:?}", allocator.head);
         allocator
+    }
+
+    fn print_block_header_list(&self, message: &'static str) {
+        kprintln!("{}: {:?}", message, BlockHeaderList { head: &self.head })
     }
 
     #[inline]
@@ -124,20 +142,11 @@ impl Allocator {
 
     fn divide_maximally(&mut self) {
         let list = self.head;
-        // unsafe { list.push(head as *mut usize) };
-        kprintln!("list before: {:?}", list);
-        {
-            kprintln!(
-                "block header list before {:?}",
-                BlockHeaderList { head: &self.head }
-            )
-        }
 
         let mut iter = list.iter();
         loop {
             if let Some(ptr) = iter.peek() {
                 let ptr = ptr as usize;
-                println!("next pointer to divide: 0x{:x}", ptr);
                 let block_header = unsafe { BlockHeader::from_ptr(ptr) };
                 let alignment = self.next_power_of_two_below(block_header.size);
                 let aligned_ptr = align_up(ptr, alignment);
@@ -154,12 +163,6 @@ impl Allocator {
                     let diff = next_ptr.saturating_sub(ptr);
                     next_block_header.size = block_header.size - diff;
                     block_header.size = diff;
-                    kprintln!(
-                        "pushing: 0x{:x}, size: 0x{:x}, alignment: 0x{:x}",
-                        next_ptr,
-                        next_block_header.size,
-                        alignment
-                    );
                     unsafe { block_header.head.push(next_ptr as *mut usize) };
                     continue;
                 }
@@ -168,13 +171,31 @@ impl Allocator {
             }
             iter.next();
         }
-        kprintln!("list after: {:?}", list);
-        {
-            kprintln!(
-                "block header list after {:?}",
-                BlockHeaderList { head: &self.head }
-            )
-        }
+    }
+
+    fn defragment(&mut self) {
+        // iterate pointers, and if two blocks are adjacent, same sized, and the
+        // first block is aligned on the sum of their sizes, they can be joined
+
+        self.head
+            .iter()
+            .fold(None, |prev_ptr, cur_ptr| -> Option<*mut usize> {
+                if let Some(prev_ptr) = prev_ptr {
+                    let prev_block_header = unsafe { BlockHeader::from_ptr(prev_ptr as usize) };
+                    let cur_block_header = unsafe { BlockHeader::from_ptr(cur_ptr as usize) };
+                    if prev_block_header.is_adjacent(cur_block_header)
+                        && prev_block_header.equal_size(cur_block_header)
+                        && prev_block_header.aligned_on(2 * prev_block_header.size)
+                    {
+                        assert_eq!(
+                            prev_block_header.head.pop().unwrap() as usize,
+                            cur_block_header.addr()
+                        );
+                        prev_block_header.size *= 2;
+                    }
+                }
+                Some(cur_ptr)
+            });
     }
 
     fn find_exact_free_block(
@@ -210,13 +231,6 @@ impl Allocator {
     /// (`AllocError::Exhausted`) or `layout` does not meet this allocator's
     /// size or alignment constraints (`AllocError::Unsupported`).
     pub fn alloc(&mut self, layout: Layout) -> Result<*mut u8, AllocErr> {
-        kprintln!("[alloc] list before: {:?}", self.head);
-        {
-            kprintln!(
-                "[alloc] block header list before {:?}",
-                BlockHeaderList { head: &self.head }
-            )
-        }
         let mut size = max(layout.size(), BLOCK_LEN);
         if !size.is_power_of_two() {
             size = size.checked_next_power_of_two().unwrap();
@@ -230,20 +244,11 @@ impl Allocator {
         if let Some(addr) = new_block_addr {
             self.divide_maximally();
         }
-        kprintln!("[alloc] list after: {:?}", self.head);
-        {
-            kprintln!(
-                "[alloc] block after list before {:?}",
-                BlockHeaderList { head: &self.head }
-            )
-        }
-
         Ok(addr)
     }
 
     fn alloc_inner(&mut self, layout: &Layout) -> Result<(*mut u8, Option<usize>), AllocErr> {
         if let Some((node, _)) = self.find_exact_free_block(&layout) {
-            kprintln!("exact match: {:?}", node.value());
             return Ok((node.pop() as *mut u8, None));
         }
 
@@ -276,22 +281,9 @@ impl Allocator {
             mbh.size = cbh.size.saturating_sub(diff);
             // TODO just for during development
 
-            kprintln!(
-                "[move block] list 0x{:x} before: {:?}",
-                list as *const LinkedList as usize,
-                list
-            );
             assert!(list.pop().unwrap() as usize == cbh.addr());
             assert!(cbh.addr() != mbh.addr());
             unsafe { list.push(mbh.addr() as *mut usize) };
-            kprintln!(
-                "[move block] list 0x{:x} after: {:?}",
-                list as *const LinkedList as usize,
-                list
-            );
-            kprintln!("requested layout: {:?}", layout);
-            kprintln!("cbh: {:#?}, addr: 0x{:x}", cbh, cbh.addr());
-            kprintln!("mbh: {:#?}, addr: 0x{:x}", mbh, mbh.addr());
             return Ok((cbh.addr() as *mut u8, Some(mbh.addr())));
         } else {
             Err(exhausted!(layout.size(), layout.align()))
@@ -311,7 +303,49 @@ impl Allocator {
     ///
     /// Parameters not meeting these conditions may result in undefined
     /// behavior.
-    pub fn dealloc(&mut self, ptr: *mut u8, layout: Layout) {}
+    pub fn dealloc(&mut self, ptr: *mut u8, layout: Layout) {
+        if (ptr as usize) < self.start || (ptr as usize) >= self.end {
+            panic!("deallocated pointer is not owned by allocator");
+        }
+
+        let mut size = max(layout.size(), BLOCK_LEN);
+        if !size.is_power_of_two() {
+            size = size.checked_next_power_of_two().unwrap();
+        }
+
+        let inner_layout = Layout::from_size_align(size, max(layout.align(), BLOCK_LEN)).unwrap();
+
+        self.dealloc_inner(ptr, inner_layout);
+
+        self.defragment();
+    }
+
+    pub fn dealloc_inner(&mut self, ptr: *mut u8, layout: Layout) {
+        let freed_ptr = ptr as *mut usize;
+        let head_ptr = &mut self.head as *mut LinkedList as *mut usize;
+        let res = self
+            .head
+            .iter()
+            .fold((Some(head_ptr), None), |accum, cur_ptr| match accum {
+                (Some(prev_ptr), Some(cur_ptr)) => (Some(prev_ptr), Some(cur_ptr)),
+                (Some(prev_ptr), None) => {
+                    if freed_ptr < cur_ptr {
+                        (Some(prev_ptr), Some(cur_ptr))
+                    } else {
+                        (Some(cur_ptr), None)
+                    }
+                }
+                _ => unreachable!(),
+            });
+
+        if let (Some(prev_ptr), Some(_)) = res {
+            let list = unsafe { &mut *(prev_ptr as *mut LinkedList) };
+            let block_header = unsafe { BlockHeader::new_from_ptr(freed_ptr as usize) };
+            block_header.size = layout.size();
+            assert!(block_header.addr() % layout.align() == 0);
+            unsafe { list.push(block_header.addr() as *mut usize) };
+        } else {
+            panic!("invalid pointer provided")
+        }
+    }
 }
-//
-// FIXME: Implement `Debug` for `Allocator`.
