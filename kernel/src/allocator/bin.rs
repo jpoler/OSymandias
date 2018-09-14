@@ -37,8 +37,8 @@ impl fmt::Debug for BlockHeader {
 
 impl BlockHeader {
     #[inline]
-    unsafe fn new_from_ptr(ptr: usize) -> &'static mut BlockHeader {
-        let block_header = &mut *(ptr as *mut usize as *mut BlockHeader);
+    unsafe fn new_from_ptr(ptr: *mut usize) -> &'static mut BlockHeader {
+        let block_header = &mut *(ptr as *mut BlockHeader);
         let mut head_ptr = &mut block_header.head as *mut LinkedList as *mut usize;
         // this might require volatile
         head_ptr = ptr::null_mut();
@@ -47,8 +47,8 @@ impl BlockHeader {
     }
 
     #[inline]
-    unsafe fn from_ptr(ptr: usize) -> &'static mut BlockHeader {
-        &mut *(ptr as *mut usize as *mut BlockHeader)
+    unsafe fn from_ptr(ptr: *mut usize) -> &'static mut BlockHeader {
+        &mut *(ptr as *mut BlockHeader)
     }
 
     #[inline]
@@ -100,7 +100,7 @@ impl<'a> fmt::Debug for BlockHeaderList<'a> {
             .entries(
                 self.head
                     .iter()
-                    .map(|ptr| unsafe { BlockHeader::from_ptr(ptr as usize) }),
+                    .map(|ptr| unsafe { BlockHeader::from_ptr(ptr) }),
             ).finish()
     }
 }
@@ -121,7 +121,7 @@ impl Allocator {
         let end = align_down(end, BLOCK_LEN);
 
         let mut head = LinkedList::new();
-        let block_header = unsafe { BlockHeader::new_from_ptr(start) };
+        let block_header = unsafe { BlockHeader::new_from_ptr(start as *mut usize) };
         block_header.size = end - start;
         unsafe { head.push(block_header.addr() as *mut usize) };
 
@@ -145,7 +145,7 @@ impl Allocator {
         loop {
             if let Some(ptr) = iter.peek() {
                 let ptr = ptr as usize;
-                let block_header = unsafe { BlockHeader::from_ptr(ptr) };
+                let block_header = unsafe { BlockHeader::from_ptr(ptr as *mut usize) };
                 let alignment = self.next_power_of_two_below(block_header.size);
                 let aligned_ptr = align_up(ptr, alignment);
                 let next_ptr = if ptr != aligned_ptr {
@@ -157,7 +157,8 @@ impl Allocator {
                 };
 
                 if ptr != next_ptr {
-                    let next_block_header = unsafe { BlockHeader::new_from_ptr(next_ptr) };
+                    let next_block_header =
+                        unsafe { BlockHeader::new_from_ptr(next_ptr as *mut usize) };
                     let diff = next_ptr.saturating_sub(ptr);
                     next_block_header.size = block_header.size - diff;
                     block_header.size = diff;
@@ -180,8 +181,8 @@ impl Allocator {
             .iter()
             .fold(None, |prev_ptr, cur_ptr| -> Option<*mut usize> {
                 if let Some(prev_ptr) = prev_ptr {
-                    let pbh = unsafe { BlockHeader::from_ptr(prev_ptr as usize) };
-                    let cbh = unsafe { BlockHeader::from_ptr(cur_ptr as usize) };
+                    let pbh = unsafe { BlockHeader::from_ptr(prev_ptr) };
+                    let cbh = unsafe { BlockHeader::from_ptr(cur_ptr) };
                     if pbh.is_adjacent(cbh) && pbh.equal_size(cbh) && pbh.aligned_on(2 * pbh.size) {
                         pbh.head.pop();
                         pbh.size *= 2;
@@ -199,7 +200,7 @@ impl Allocator {
             .iter_mut()
             .map(|node| unsafe {
                 let value = node.value();
-                (node, BlockHeader::from_ptr(value as usize))
+                (node, BlockHeader::from_ptr(value))
             }).find(|&(_, ref block_header)| -> bool { block_header.matches_exact(&layout) })
     }
 
@@ -250,7 +251,7 @@ impl Allocator {
             .fold((Some(head_ptr), None), |accum, cur_ptr| match accum {
                 (Some(prev_ptr), Some(cur_ptr)) => (Some(prev_ptr), Some(cur_ptr)),
                 (Some(prev_ptr), None) => {
-                    let block_header = unsafe { BlockHeader::from_ptr(cur_ptr as usize) };
+                    let block_header = unsafe { BlockHeader::from_ptr(cur_ptr) };
                     if block_header.matches_contains(&layout) {
                         (Some(prev_ptr), Some(cur_ptr))
                     } else {
@@ -265,9 +266,10 @@ impl Allocator {
 
         if let (Some(list_ptr), Some(cbh_ptr)) = res {
             let list = unsafe { &mut *(list_ptr as *mut LinkedList) };
-            let cbh = unsafe { BlockHeader::from_ptr(cbh_ptr as usize) };
-            let mbh =
-                unsafe { BlockHeader::new_from_ptr(cbh.addr().saturating_add(layout.size())) };
+            let cbh = unsafe { BlockHeader::from_ptr(cbh_ptr) };
+            let mbh = unsafe {
+                BlockHeader::new_from_ptr(cbh.addr().saturating_add(layout.size()) as *mut usize)
+            };
             let diff = mbh.addr().saturating_sub(cbh.addr());
             mbh.size = cbh.size.saturating_sub(diff);
             // TODO just for during development
@@ -331,7 +333,7 @@ impl Allocator {
 
         if let (Some(prev_ptr), Some(_)) = res {
             let list = unsafe { &mut *(prev_ptr as *mut LinkedList) };
-            let block_header = unsafe { BlockHeader::new_from_ptr(freed_ptr as usize) };
+            let block_header = unsafe { BlockHeader::new_from_ptr(freed_ptr) };
             block_header.size = layout.size();
             assert!(block_header.addr() % layout.align() == 0);
             unsafe { list.push(block_header.addr() as *mut usize) };
