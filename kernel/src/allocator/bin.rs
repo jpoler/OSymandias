@@ -237,19 +237,17 @@ impl Allocator {
         }
 
         let inner_layout = Layout::from_size_align(size, max(layout.align(), BLOCK_LEN)).unwrap();
-        let (addr, new_block_addr) = self.alloc_inner(&inner_layout).map_err(|e| match e {
+        let addr = self.alloc_inner(&inner_layout).map_err(|e| match e {
             AllocErr::Exhausted { .. } => exhausted!(layout.size(), layout.align()),
             _ => e,
         })?;
-        if let Some(addr) = new_block_addr {
-            self.divide_maximally();
-        }
+        self.divide_maximally();
         Ok(addr)
     }
 
-    fn alloc_inner(&mut self, layout: &Layout) -> Result<(*mut u8, Option<usize>), AllocErr> {
+    fn alloc_inner(&mut self, layout: &Layout) -> Result<(*mut u8), AllocErr> {
         if let Some((node, _)) = self.find_exact_free_block(&layout) {
-            return Ok((node.pop() as *mut u8, None));
+            return Ok(node.pop() as *mut u8);
         }
 
         let head_ptr = &mut self.head as *mut LinkedList as *mut usize;
@@ -284,7 +282,7 @@ impl Allocator {
             assert!(list.pop().unwrap() as usize == cbh.addr());
             assert!(cbh.addr() != mbh.addr());
             unsafe { list.push(mbh.addr() as *mut usize) };
-            return Ok((cbh.addr() as *mut u8, Some(mbh.addr())));
+            return Ok(cbh.addr() as *mut u8);
         } else {
             Err(exhausted!(layout.size(), layout.align()))
         }
