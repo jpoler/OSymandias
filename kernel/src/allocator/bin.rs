@@ -140,33 +140,37 @@ impl Allocator {
         n.checked_next_power_of_two().unwrap() >> 1
     }
 
+    fn inner_layout(&self, layout: &Layout) -> Option<Layout> {
+        let mut size = max(layout.size(), BLOCK_LEN);
+        if !size.is_power_of_two() {
+            size = size.checked_next_power_of_two().unwrap();
+        }
+
+        Layout::from_size_align(size, max(layout.align(), BLOCK_LEN))
+    }
+
     fn divide_maximally(&mut self) {
         let mut iter = self.head.iter();
-        loop {
-            if let Some(ptr) = iter.peek() {
-                let ptr = ptr as usize;
-                let block_header = unsafe { BlockHeader::from_ptr(ptr as *mut usize) };
-                let alignment = self.next_power_of_two_below(block_header.size);
-                let aligned_ptr = align_up(ptr, alignment);
-                let next_ptr = if ptr != aligned_ptr {
-                    aligned_ptr
-                } else if !block_header.size.is_power_of_two() {
-                    ptr + self.next_power_of_two_below(block_header.size)
-                } else {
-                    ptr
-                };
-
-                if ptr != next_ptr {
-                    let next_block_header =
-                        unsafe { BlockHeader::new_from_ptr(next_ptr as *mut usize) };
-                    let diff = next_ptr.saturating_sub(ptr);
-                    next_block_header.size = block_header.size - diff;
-                    block_header.size = diff;
-                    unsafe { block_header.head.push(next_ptr as *mut usize) };
-                    continue;
-                }
+        while let Some(ptr) = iter.peek() {
+            let ptr = ptr as usize;
+            let cbh = unsafe { BlockHeader::from_ptr(ptr as *mut usize) };
+            let alignment = self.next_power_of_two_below(cbh.size);
+            let aligned_ptr = align_up(ptr, alignment);
+            let next_ptr = if ptr != aligned_ptr {
+                aligned_ptr
+            } else if !cbh.size.is_power_of_two() {
+                ptr + self.next_power_of_two_below(cbh.size)
             } else {
-                break;
+                ptr
+            };
+
+            if ptr != next_ptr {
+                let nbh = unsafe { BlockHeader::new_from_ptr(next_ptr as *mut usize) };
+                let diff = next_ptr.saturating_sub(ptr);
+                nbh.size = cbh.size - diff;
+                cbh.size = diff;
+                unsafe { cbh.head.push(next_ptr as *mut usize) };
+                continue;
             }
             iter.next();
         }
@@ -225,12 +229,7 @@ impl Allocator {
     /// (`AllocError::Exhausted`) or `layout` does not meet this allocator's
     /// size or alignment constraints (`AllocError::Unsupported`).
     pub fn alloc(&mut self, layout: Layout) -> Result<*mut u8, AllocErr> {
-        let mut size = max(layout.size(), BLOCK_LEN);
-        if !size.is_power_of_two() {
-            size = size.checked_next_power_of_two().unwrap();
-        }
-
-        let inner_layout = Layout::from_size_align(size, max(layout.align(), BLOCK_LEN)).unwrap();
+        let inner_layout = self.inner_layout(&layout).unwrap();
         let addr = self.alloc_inner(&inner_layout).map_err(|e| match e {
             AllocErr::Exhausted { .. } => exhausted!(layout.size(), layout.align()),
             _ => e,
@@ -301,19 +300,13 @@ impl Allocator {
             panic!("deallocated pointer is not owned by allocator");
         }
 
-        let mut size = max(layout.size(), BLOCK_LEN);
-        if !size.is_power_of_two() {
-            size = size.checked_next_power_of_two().unwrap();
-        }
-
-        let inner_layout = Layout::from_size_align(size, max(layout.align(), BLOCK_LEN)).unwrap();
-
-        self.dealloc_inner(ptr, inner_layout);
+        let inner_layout = self.inner_layout(&layout).unwrap();
+        self.dealloc_inner(ptr, &inner_layout);
 
         self.defragment();
     }
 
-    pub fn dealloc_inner(&mut self, ptr: *mut u8, layout: Layout) {
+    pub fn dealloc_inner(&mut self, ptr: *mut u8, layout: &Layout) {
         let freed_ptr = ptr as *mut usize;
         let head_ptr = &mut self.head as *mut LinkedList as *mut usize;
         let res = self
