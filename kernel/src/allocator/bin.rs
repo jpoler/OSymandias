@@ -141,9 +141,7 @@ impl Allocator {
     }
 
     fn divide_maximally(&mut self) {
-        let list = self.head;
-
-        let mut iter = list.iter();
+        let mut iter = self.head.iter();
         loop {
             if let Some(ptr) = iter.peek() {
                 let ptr = ptr as usize;
@@ -173,25 +171,20 @@ impl Allocator {
         }
     }
 
+    // Iterate pointers, and if two blocks are adjacent, same sized, and the
+    // first block is aligned on the sum of their sizes, they can be joined.
+    // Note that this is a single pass, so optimal defragmentation would take
+    // multiple passes until the freelist no longer changed.
     fn defragment(&mut self) {
-        // iterate pointers, and if two blocks are adjacent, same sized, and the
-        // first block is aligned on the sum of their sizes, they can be joined
-
         self.head
             .iter()
             .fold(None, |prev_ptr, cur_ptr| -> Option<*mut usize> {
                 if let Some(prev_ptr) = prev_ptr {
-                    let prev_block_header = unsafe { BlockHeader::from_ptr(prev_ptr as usize) };
-                    let cur_block_header = unsafe { BlockHeader::from_ptr(cur_ptr as usize) };
-                    if prev_block_header.is_adjacent(cur_block_header)
-                        && prev_block_header.equal_size(cur_block_header)
-                        && prev_block_header.aligned_on(2 * prev_block_header.size)
-                    {
-                        assert_eq!(
-                            prev_block_header.head.pop().unwrap() as usize,
-                            cur_block_header.addr()
-                        );
-                        prev_block_header.size *= 2;
+                    let pbh = unsafe { BlockHeader::from_ptr(prev_ptr as usize) };
+                    let cbh = unsafe { BlockHeader::from_ptr(cur_ptr as usize) };
+                    if pbh.is_adjacent(cbh) && pbh.equal_size(cbh) && pbh.aligned_on(2 * pbh.size) {
+                        pbh.head.pop();
+                        pbh.size *= 2;
                     }
                 }
                 Some(cur_ptr)
