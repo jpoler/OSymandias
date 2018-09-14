@@ -168,31 +168,36 @@ mod allocator {
         )
     });
 
-    test_allocators!(bin_alloc, bump_alloc, 8 * (1 << 20), |(start, end, a)| {
-        let layouts = [
-            layout!(16, 16),
-            layout!(16, 128),
-            layout!(16, 256),
-            layout!(4, 256),
-            layout!(1024, 16),
-            layout!(1024, 4),
-            layout!(1024, 128),
-            layout!(2048, 8),
-            layout!(2049, 8),
-            layout!(2050, 8),
-            layout!(4095, 4),
-            layout!(4096, 4),
-            layout!(4096, 4),
-            layout!(4096, 4096),
-            layout!(16, 4096),
-            layout!(8192, 4096),
-            layout!(8192, 8),
-            layout!(8192, 8),
-        ];
+    test_allocators!(
+        bin_alloc_1,
+        bump_alloc_1,
+        8 * (1 << 20),
+        |(start, end, a)| {
+            let layouts = [
+                layout!(16, 16),
+                layout!(16, 128),
+                layout!(16, 256),
+                layout!(4, 256),
+                layout!(1024, 16),
+                layout!(1024, 4),
+                layout!(1024, 128),
+                layout!(2048, 8),
+                layout!(2049, 8),
+                layout!(2050, 8),
+                layout!(4095, 4),
+                layout!(4096, 4),
+                layout!(4096, 4),
+                layout!(4096, 4096),
+                layout!(16, 4096),
+                layout!(8192, 4096),
+                layout!(8192, 8),
+                layout!(8192, 8),
+            ];
 
-        // Test a few specially chosen layouts.
-        test_layouts!(layouts, start, end, a);
-    });
+            // Test a few specially chosen layouts.
+            test_layouts!(layouts, start, end, a);
+        }
+    );
 
     test_allocators!(
         bin_alloc_2,
