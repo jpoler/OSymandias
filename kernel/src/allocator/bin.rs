@@ -106,6 +106,7 @@ impl<'a> fmt::Debug for BlockHeaderList<'a> {
 }
 
 /// A simple allocator that allocates based on size classes.
+#[derive(Debug)]
 pub struct Allocator {
     start: usize,
     end: usize,
