@@ -85,7 +85,6 @@ impl BlockDevice for Sd {
         }
 
         let n = unsafe { sd_readsector(sector as i32, buf.as_mut_ptr()) };
-        kprintln!("sector: {}, n: {}", sector, n);
         if n == 0 {
             let code = unsafe { sd_err };
             match Error::from(code as i32) {

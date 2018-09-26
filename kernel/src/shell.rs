@@ -1,30 +1,122 @@
-use self::builtins::resolve_builtin;
 use console::{_print, CONSOLE};
+use fat32::traits::FileSystem as FileSystemTrait;
+use fs::FileSystem;
 use stack_vec::StackVec;
 use std::fmt;
 use std::io;
+use std::path::{Component, Path, PathBuf};
 use std::str::from_utf8;
 
-mod builtins {
-    use console::_print;
+trait Reset {
+    fn reset(&mut self) {}
+}
 
-    pub fn resolve_builtin(cmd: &str) -> Option<fn(&mut [&str])> {
-        match cmd {
-            "echo" => Some(echo),
-            _ => None,
+impl Reset for PathBuf {
+    fn reset(&mut self) {
+        while self.pop() {}
+    }
+}
+
+struct Shell<'a> {
+    prefix: &'a str,
+    cwd: PathBuf,
+    fs: &'static FileSystem,
+}
+
+impl<'a> Shell<'a> {
+    pub fn new(fs: &'static FileSystem, prefix: &'a str) -> Shell<'a> {
+        Shell {
+            prefix,
+            cwd: PathBuf::from("/"),
+            fs,
         }
     }
 
-    fn echo(args: &mut [&str]) {
-        let args = &args[1..];
-        if args.len() == 0 {
-            kprintln!("");
-        } else {
-            for arg in &args[..args.len() - 1] {
-                kprint!("{} ", arg);
-            }
-            kprintln!("{}", args[args.len() - 1])
+    fn eval(&mut self) -> Result<(), Error> {
+        let mut bufio = BufferedIo::new();
+        let mut line: [u8; 512] = [0; 512];
+        let mut args: [&str; 64] = [""; 64];
+
+        kprint!("{}", self.prefix);
+
+        let n = match bufio.readline(&mut line)? {
+            0 => return Ok(()),
+            n => n,
+        };
+
+        let cmd_str = from_utf8(&mut line[..n]).map_err(|_| Error::InvalidUtf8)?;
+        let cmd = Command::parse(cmd_str, &mut args)?;
+
+        self.dispatch(&cmd)
+    }
+
+    pub fn dispatch(&mut self, command: &Command) -> Result<(), Error> {
+        let args = &command.args[1..];
+        match command.path() {
+            "echo" => self.echo(args),
+            "pwd" => self.pwd(args),
+            "cd" => self.cd(args),
+            path => Err(Error::UnknownCommand {
+                command: path.to_string(),
+            }),
         }
+    }
+
+    fn echo(&self, args: &[&str]) -> Result<(), Error> {
+        kprintln!("{}", args.join(" "));
+        Ok(())
+    }
+
+    fn pwd(&self, args: &[&str]) -> Result<(), Error> {
+        if args.len() > 0 {
+            return Err(Error::TooManyArgs);
+        }
+
+        kprintln!("{}", self.cwd.display());
+
+        Ok(())
+    }
+
+    fn cd(&mut self, args: &[&str]) -> Result<(), Error> {
+        if args.len() != 1 {
+            return Err(Error::InvalidArgs);
+        }
+
+        let mut cwd = self.cwd.clone();
+
+        for component in Path::new(args[0]).components() {
+            match component {
+                Component::Prefix(prefix) => {
+                    return Err(Error::Path {
+                        path: PathBuf::from(args[0]),
+                        message: format!("prefix not supported: {:?}", prefix),
+                    })
+                }
+                Component::RootDir => {
+                    cwd.reset();
+                }
+                Component::ParentDir => {
+                    if let None = cwd.parent() {
+                        return Err(Error::Path {
+                            path: PathBuf::from(args[0]),
+                            message: "invalid target directory".to_string(),
+                        });
+                    }
+
+                    cwd.pop();
+                }
+                Component::CurDir => {}
+                Component::Normal(normal) => {
+                    cwd.push(normal);
+                }
+            }
+        }
+
+        self.fs.open_dir(&cwd)?;
+
+        self.cwd = cwd;
+
+        Ok(())
     }
 }
 
@@ -33,10 +125,12 @@ mod builtins {
 enum Error {
     Empty,
     TooManyArgs,
+    InvalidArgs,
     LineTooLong,
-    UnknownCommand,
+    UnknownCommand { command: String },
     InvalidUtf8,
     Io { error: io::Error },
+    Path { path: PathBuf, message: String },
 }
 
 impl From<io::Error> for Error {
@@ -51,10 +145,15 @@ impl fmt::Display for Error {
         match self {
             &Empty => write!(f, "empty command"),
             &TooManyArgs => write!(f, "too many arguments"),
+            &InvalidArgs => write!(f, "invalid arguments"),
             &LineTooLong => write!(f, "line too long"),
-            &UnknownCommand => write!(f, "unknown command"),
+            &UnknownCommand { ref command } => write!(f, "unknown command: {}", command),
             &InvalidUtf8 => write!(f, "invalid utf8"),
             &Io { ref error } => write!(f, "{}", error),
+            &Path {
+                ref path,
+                ref message,
+            } => write!(f, "{}: {}", path.display(), message),
         }
     }
 }
@@ -136,34 +235,13 @@ impl<'a> Command<'a> {
     }
 }
 
-fn eval(prefix: &str) -> Result<(), Error> {
-    let mut bufio = BufferedIo::new();
-    let mut line: [u8; 512] = [0; 512];
-    let mut args: [&str; 64] = [""; 64];
-
-    kprint!("{}", prefix);
-
-    let n = match bufio.readline(&mut line)? {
-        0 => return Ok(()),
-        n => n,
-    };
-
-    let cmd_str = from_utf8(&mut line[..n]).map_err(|_| Error::InvalidUtf8)?;
-    let mut cmd = Command::parse(cmd_str, &mut args)?;
-
-    let f = resolve_builtin(cmd.path()).ok_or(Error::UnknownCommand)?;
-
-    f(&mut cmd.args[..]);
-
-    Ok(())
-}
-
 /// Starts a shell using `prefix` as the prefix for each line. This function
 /// never returns: it is perpetually in a shell loop.
-pub fn shell(prefix: &str) -> ! {
+pub fn shell(fs: &'static FileSystem, prefix: &str) -> ! {
+    let mut shell = Shell::new(fs, prefix);
     loop {
-        if let Err(err) = eval(prefix) {
-            kprintln!("\nerror: {}", err)
+        if let Err(err) = shell.eval() {
+            kprintln!("{}", err)
         }
     }
 }

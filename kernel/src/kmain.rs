@@ -49,12 +49,5 @@ pub extern "C" fn kmain() {
     ALLOCATOR.initialize();
     FILE_SYSTEM.initialize();
 
-    let root_dir = FILE_SYSTEM.open("/").unwrap().into_dir().unwrap();
-    for file in root_dir
-        .entries()
-        .unwrap()
-        .filter_map(|entry| entry.into_file())
-    {
-        kprintln!("{}", file.name());
-    }
+    shell::shell(&FILE_SYSTEM, "> ");
 }
