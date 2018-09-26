@@ -18,7 +18,7 @@ RUST_DEPS = Xargo.toml Cargo.toml build.rs $(LD_LAYOUT) src/*
 EXT_DEPS = $(BUILD_DIR)/init.o
 
 BUILD_DIR := build
-SD_CARD := /Volumes/boot
+SD_CARD := /Volumes/BOOT
 SD_KERNEL := $(SD_CARD)/kernel8.img
 KERNEL := $(BUILD_DIR)/$(RUST_BINARY)
 RUST_LIB := $(BUILD_DIR)/$(RUST_BINARY).a
