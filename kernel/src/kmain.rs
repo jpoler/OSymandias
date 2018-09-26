@@ -30,6 +30,9 @@ use pi::atags::Atags;
 
 #[cfg(not(test))]
 use allocator::Allocator;
+use fat32::traits::{Dir as DirTraitEntry, Entry as EntryTrait, FileSystem as FileSystemTrait};
+use fat32::MasterBootRecord;
+use fs::sd::Sd;
 use fs::FileSystem;
 use pi::timer;
 
@@ -44,10 +47,14 @@ pub static FILE_SYSTEM: FileSystem = FileSystem::uninitialized();
 pub extern "C" fn kmain() {
     timer::spin_sleep_ms(1000);
     ALLOCATOR.initialize();
+    FILE_SYSTEM.initialize();
 
-    let mut v = vec![];
-    for i in 0..1000 {
-        v.push(i);
-        kprintln!("{:?}", v);
+    let root_dir = FILE_SYSTEM.open("/").unwrap().into_dir().unwrap();
+    for file in root_dir
+        .entries()
+        .unwrap()
+        .filter_map(|entry| entry.into_file())
+    {
+        kprintln!("{}", file.name());
     }
 }
