@@ -30,7 +30,7 @@ use pi::atags::Atags;
 
 #[cfg(not(test))]
 use allocator::Allocator;
-use fat32::traits::{Dir as DirTraitEntry, Entry as EntryTrait, FileSystem as FileSystemTrait};
+use fat32::traits::{Dir as DirTrait, Entry as EntryTrait, FileSystem as FileSystemTrait};
 use fat32::MasterBootRecord;
 use fs::sd::Sd;
 use fs::FileSystem;
@@ -49,5 +49,5 @@ pub extern "C" fn kmain() {
     ALLOCATOR.initialize();
     FILE_SYSTEM.initialize();
 
-    shell::shell(&FILE_SYSTEM, "> ");
+    shell::shell(&FILE_SYSTEM, ">");
 }
