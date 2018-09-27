@@ -23,11 +23,14 @@ RUST_LIB_DEPS = ../pi/src/* ../pi/src/*/** \
 RUST_DEPS = Xargo.toml Cargo.toml build.rs $(LD_LAYOUT) src/* $(RUST_LIB_DEPS)
 EXT_DEPS = $(BUILD_DIR)/init.o
 
+FIRMWARE_DIR := ../files/firmware
 BUILD_DIR := build
 KERNEL := $(BUILD_DIR)/$(RUST_BINARY)
+SD_CARD := /Volumes/boot
+SD_KERNEL := $(SD_CARD)/kernel8.img
 RUST_LIB := $(BUILD_DIR)/$(RUST_BINARY).a
 
-.PHONY: all test clean check install
+.PHONY: all test clean check copy copy-umount watch install
 
 VPATH = ext
 
@@ -40,7 +43,7 @@ test:
 	@$(CARGO) test
 
 install: $(KERNEL).bin
-	$(TTYWRITE) -i $< $(PI_TTY)
+	$(TTYWRITE) -m write -t 60 -i $< $(PI_TTY)
 
 $(RUST_DEBUG_LIB): $(RUST_DEPS)
 	@echo "+ Building $@ [xargo]"
@@ -84,3 +87,18 @@ $(KERNEL).bin: $(KERNEL).elf | $(BUILD_DIR)
 clean:
 	$(XARGO) clean
 	rm -rf $(BUILD_DIR)
+
+clean-sd:
+	rm -rf $(SD_CARD)/*
+
+copy-firmware:
+	cp $(FIRMWARE_DIR)/* $(SD_CARD)
+
+copy: all clean-sd copy-firmware
+	rm -f $(SD_KERNEL)
+	cp $(KERNEL).bin $(SD_KERNEL)
+
+umount:
+	diskutil umount $(SD_CARD)
+
+copy-umount: copy umount

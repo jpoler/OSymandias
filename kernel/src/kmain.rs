@@ -3,7 +3,6 @@
 #![feature(const_fn)]
 #![feature(asm)]
 #![feature(optin_builtin_traits)]
-#![feature(decl_macro)]
 #![feature(repr_align)]
 #![feature(attr_literals)]
 #![feature(exclusive_range_pattern)]
@@ -14,28 +13,39 @@
 #![feature(naked_functions)]
 #![feature(fn_must_use)]
 #![feature(alloc, allocator_api, global_allocator)]
+#![feature(pointer_methods)]
 
 #[macro_use]
 #[allow(unused_imports)]
 extern crate alloc;
+extern crate fat32;
 extern crate pi;
 extern crate stack_vec;
-extern crate fat32;
 
+#[macro_use]
+pub mod console;
+
+pub mod aarch64;
 pub mod allocator;
+pub mod fs;
+pub mod fs;
 pub mod lang_items;
 pub mod mutex;
-pub mod console;
-pub mod shell;
-pub mod fs;
-pub mod traps;
-pub mod aarch64;
 pub mod process;
+pub mod shell;
+pub mod traps;
 pub mod vm;
+
+use console::{_print, CONSOLE};
+use pi::atags::Atags;
 
 #[cfg(not(test))]
 use allocator::Allocator;
+use fat32::traits::{Dir as DirTrait, Entry as EntryTrait, FileSystem as FileSystemTrait};
+use fat32::MasterBootRecord;
+use fs::sd::Sd;
 use fs::FileSystem;
+use pi::timer;
 use process::GlobalScheduler;
 
 #[cfg(not(test))]
@@ -49,5 +59,9 @@ pub static SCHEDULER: GlobalScheduler = GlobalScheduler::uninitialized();
 #[no_mangle]
 #[cfg(not(test))]
 pub extern "C" fn kmain() {
+    timer::spin_sleep_ms(1000);
     ALLOCATOR.initialize();
+    FILE_SYSTEM.initialize();
+
+    shell::shell(&FILE_SYSTEM, ">");
 }
