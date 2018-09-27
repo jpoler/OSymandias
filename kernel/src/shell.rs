@@ -236,9 +236,9 @@ impl fmt::Display for Error {
         match self {
             &Empty => write!(f, "empty command"),
             &TooManyArgs => write!(f, "too many arguments"),
-            &InvalidArgs { ref message } => write!(f, "invalid arguments {}", message),
+            &InvalidArgs { ref message } => write!(f, "invalid arguments -- {}", message),
             &LineTooLong => write!(f, "line too long"),
-            &UnknownCommand { ref command } => write!(f, "unknown command: {}", command),
+            &UnknownCommand { ref command } => write!(f, "unknown command -- {}", command),
             &InvalidUtf8 => write!(f, "invalid utf8"),
             &Io { ref error } => write!(f, "{}", error),
             &Path {
