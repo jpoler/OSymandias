@@ -51,3 +51,9 @@ pub fn nop() {
         asm!("nop" :::: "volatile");
     }
 }
+
+pub fn sctlr() -> u64 {
+    let sctlr_reg: u64;
+    unsafe { asm!("mrs $0, sctlr_el1" : "=r"(sctlr_reg)) }
+    sctlr_reg
+}
