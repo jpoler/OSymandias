@@ -28,7 +28,6 @@ pub mod console;
 pub mod aarch64;
 pub mod allocator;
 pub mod fs;
-pub mod fs;
 pub mod lang_items;
 pub mod mutex;
 pub mod process;
@@ -56,12 +55,17 @@ pub static FILE_SYSTEM: FileSystem = FileSystem::uninitialized();
 
 pub static SCHEDULER: GlobalScheduler = GlobalScheduler::uninitialized();
 
+// TODO: enable data cache with sctlr
+//       must invalidate cache before enabling
 #[no_mangle]
 #[cfg(not(test))]
 pub extern "C" fn kmain() {
     timer::spin_sleep_ms(1000);
     ALLOCATOR.initialize();
     FILE_SYSTEM.initialize();
+
+    kprintln!("{:x}", unsafe { aarch64::current_el() });
+    kprintln!("{:x}", aarch64::sctlr());
 
     shell::shell(&FILE_SYSTEM, ">");
 }
