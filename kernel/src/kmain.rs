@@ -67,5 +67,11 @@ pub extern "C" fn kmain() {
     kprintln!("{:x}", unsafe { aarch64::current_el() });
     kprintln!("{:x}", aarch64::sctlr());
 
-    shell::shell(&FILE_SYSTEM, ">");
+    unsafe {
+        asm!("brk 2" :::: "volatile");
+    }
+
+    loop {
+        shell::shell(&::FILE_SYSTEM, ">");
+    }
 }

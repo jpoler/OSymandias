@@ -63,6 +63,11 @@ impl Reset for PathBuf {
     }
 }
 
+enum EvalStatus {
+    Continue,
+    Terminate,
+}
+
 struct Shell<'a> {
     prefix: &'a str,
     cwd: PathBuf,
@@ -78,29 +83,36 @@ impl<'a> Shell<'a> {
         }
     }
 
-    fn repl(mut self) -> ! {
+    fn repl(mut self) {
         loop {
             kprint!("[{}] {} ", self.cwd.display(), self.prefix);
-            if let Err(err) = self.eval() {
-                kprintln!("{}", err)
+            match self.eval() {
+                Ok(EvalStatus::Terminate) => return,
+                Ok(EvalStatus::Continue) => {}
+                Err(err) => kprintln!("{}", err),
             }
         }
     }
 
-    fn eval(&mut self) -> Result<(), Error> {
+    fn eval(&mut self) -> Result<EvalStatus, Error> {
         let mut bufio = BufferedIo::new();
         let mut line: [u8; 512] = [0; 512];
         let mut args: [&str; 64] = [""; 64];
 
         let n = match bufio.readline(&mut line)? {
-            0 => return Ok(()),
+            0 => return Ok(EvalStatus::Continue),
             n => n,
         };
 
         let cmd_str = from_utf8(&mut line[..n]).map_err(|_| Error::InvalidUtf8)?;
         let cmd = Command::parse(cmd_str, &mut args)?;
 
-        self.dispatch(&cmd)
+        if cmd.path() == "exit" {
+            return Ok(EvalStatus::Terminate);
+        }
+
+        self.dispatch(&cmd)?;
+        Ok(EvalStatus::Continue)
     }
 
     pub fn dispatch(&mut self, command: &Command) -> Result<(), Error> {
@@ -328,7 +340,8 @@ impl<'a> Command<'a> {
 
 /// Starts a shell using `prefix` as the prefix for each line. This function
 /// never returns: it is perpetually in a shell loop.
-pub fn shell(fs: &'static FileSystem, prefix: &str) -> ! {
+pub fn shell(fs: &'static FileSystem, prefix: &str) {
+    kprintln!("new shell");
     let shell = Shell::new(fs, prefix);
     shell.repl();
 }

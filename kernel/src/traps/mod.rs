@@ -4,12 +4,14 @@ mod syscall;
 mod trap_frame;
 
 use pi::interrupt::{Controller, Interrupt};
+use shell;
 
 pub use self::trap_frame::TrapFrame;
 
 use self::irq::handle_irq;
 use self::syndrome::Syndrome;
 use self::syscall::handle_syscall;
+use aarch64;
 use console::_print;
 
 #[repr(u16)]
@@ -43,5 +45,13 @@ pub struct Info {
 /// the trap frame for the exception.
 #[no_mangle]
 pub extern "C" fn handle_exception(info: Info, esr: u32, tf: &mut TrapFrame) {
-    unimplemented!("handle_exception")
+    kprintln!("info: {:?}", info);
+    kprintln!("esr: {:x}", esr);
+
+    match (info.kind, Syndrome::from(esr)) {
+        (Kind::Synchronous, Syndrome::Brk(x)) => loop {
+            shell::shell(&::FILE_SYSTEM, "?")
+        },
+        (_, syndrome) => panic!("unexpected syndrome: {:?}", syndrome),
+    }
 }
