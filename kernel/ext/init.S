@@ -107,21 +107,96 @@ go_kmain:
     b       halt
 
 context_save:
-  stp   lr, x0, [SP, #-16]!
-  stp   x1, x2, [SP, #-16]!
+  sub   sp, sp, 784
+  stp   x29, x29, [sp, #768]
+  stp   x27, x28, [sp, #752]
+  stp   x25, x26, [sp, #736]
+  stp   x23, x24, [sp, #720]
+  stp   x21, x22, [sp, #704]
+  stp   x19, x20, [sp, #688]
+  stp   x17, x18, [sp, #672]
+  stp   x15, x16, [sp, #656]
+  stp   x13, x14, [sp, #640]
+  stp   x11, x12, [sp, #624]
+  stp   x9, x10, [sp, #608]
+  stp   x7, x8, [sp, #592]
+  stp   x5, x6, [sp, #576]
+  stp   x3, x4, [sp, #560]
+  stp   x1, x2, [sp, #544]
+  stp   q30, q31, [sp, #512]
+  stp   q28, q29, [sp, #480]
+  stp   q26, q27, [sp, #448]
+  stp   q24, q25, [sp, #416]
+  stp   q22, q23, [sp, #384]
+  stp   q20, q21, [sp, #352]
+  stp   q18, q19, [sp, #320]
+  stp   q16, q17, [sp, #288]
+  stp   q14, q15, [sp, #256]
+  stp   q12, q13, [sp, #224]
+  stp   q10, q11, [sp, #192]
+  stp   q8, q9, [sp, #160]
+  stp   q6, q7, [sp, #128]
+  stp   q4, q4, [sp, #96]
+  stp   q2, q3, [sp, #64]
+  stp   q0, q1, [sp, #32]
+
+  mrs   x3, ELR_EL1
+  mrs   x4, SPSR_EL1
+  mrs   x5, SP_EL0
+  mrs   x6, TPIDR_EL0
+
+  stp x5, x6, [sp, #16]
+  stp x3, x4, [sp]
+
   mrs   x1, ESR_EL1
   mov   x2, #0
   bl    handle_exception
-  ldp   lr, x0, [SP], #16
-	ldp   x1, x2, [SP], #16
   ret
 
 
 .global context_restore
 context_restore:
-    // FIXME: Restore the context from the stack.
+	ldp x5, x6, [sp, #16]
+	ldp x3, x4, [sp]
+  msr    ELR_EL1, x3
+	msr    SPSR_EL1, x4
+	msr    SP_EL0, x5
+	msr    TPIDR_EL0, x6
 
-    ret
+  ldp   x29, x29, [sp, #768]
+  ldp   x27, x28, [sp, #752]
+  ldp   x25, x26, [sp, #736]
+  ldp   x23, x24, [sp, #720]
+  ldp   x21, x22, [sp, #704]
+  ldp   x19, x20, [sp, #688]
+  ldp   x17, x18, [sp, #672]
+  ldp   x15, x16, [sp, #656]
+  ldp   x13, x14, [sp, #640]
+  ldp   x11, x12, [sp, #624]
+  ldp   x9, x10, [sp, #608]
+  ldp   x7, x8, [sp, #592]
+  ldp   x5, x6, [sp, #576]
+  ldp   x3, x4, [sp, #560]
+  ldp   x1, x2, [sp, #544]
+  ldp   q30, q31, [sp, #512]
+  ldp   q28, q29, [sp, #480]
+  ldp   q26, q27, [sp, #448]
+  ldp   q24, q25, [sp, #416]
+  ldp   q22, q23, [sp, #384]
+  ldp   q20, q21, [sp, #352]
+  ldp   q18, q19, [sp, #320]
+  ldp   q16, q17, [sp, #288]
+  ldp   q14, q15, [sp, #256]
+  ldp   q12, q13, [sp, #224]
+  ldp   q10, q11, [sp, #192]
+  ldp   q8, q9, [sp, #160]
+  ldp   q6, q7, [sp, #128]
+  ldp   q4, q4, [sp, #96]
+  ldp   q2, q3, [sp, #64]
+  ldp   q0, q1, [sp, #32]
+
+  add   sp, sp, 784
+  ret
 
 #define HANDLER(source, kind) \
     .align 7; \
