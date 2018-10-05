@@ -107,23 +107,30 @@ go_kmain:
     b       halt
 
 context_save:
-  sub   sp, sp, 784
-  stp   x29, x29, [sp, #768]
-  stp   x27, x28, [sp, #752]
-  stp   x25, x26, [sp, #736]
-  stp   x23, x24, [sp, #720]
-  stp   x21, x22, [sp, #704]
-  stp   x19, x20, [sp, #688]
-  stp   x17, x18, [sp, #672]
-  stp   x15, x16, [sp, #656]
-  stp   x13, x14, [sp, #640]
-  stp   x11, x12, [sp, #624]
-  stp   x9, x10, [sp, #608]
-  stp   x7, x8, [sp, #592]
-  stp   x5, x6, [sp, #576]
-  stp   x3, x4, [sp, #560]
-  stp   x1, x2, [sp, #544]
-  stp   q30, q31, [sp, #512]
+  // annoyingly, stp can only address immediate offsets of -512, 504, so we have
+	// to decrement sp twice to address the entire trap frame
+
+  sub   sp, sp, #272
+
+  str   x29, [sp, #256]
+  stp   x27, x28, [sp, #240]
+  stp   x25, x26, [sp, #224]
+  stp   x23, x24, [sp, #208]
+  stp   x21, x22, [sp, #192]
+  stp   x19, x20, [sp, #176]
+  stp   x17, x18, [sp, #160]
+  stp   x15, x16, [sp, #144]
+  stp   x13, x14, [sp, #128]
+  stp   x11, x12, [sp, #112]
+  stp   x9, x10, [sp, #96]
+  stp   x7, x8, [sp, #80]
+  stp   x5, x6, [sp, #64]
+  stp   x3, x4, [sp, #48]
+  stp   x1, x2, [sp, #32]
+  stp   q30, q31, [sp]
+
+  sub   sp, sp, #512
+
   stp   q28, q29, [sp, #480]
   stp   q26, q27, [sp, #448]
   stp   q24, q25, [sp, #416]
@@ -145,57 +152,72 @@ context_save:
   mrs   x5, SP_EL0
   mrs   x6, TPIDR_EL0
 
-  stp x5, x6, [sp, #16]
-  stp x3, x4, [sp]
+  stp   x5, x6, [sp, #16]
+  stp   x3, x4, [sp]
+
 
   mrs   x1, ESR_EL1
-  mov   x2, #0
+  mov   x2, sp
+
+  // store the link register before ffi call into rust
+	sub   sp, sp, #16
+	str   lr, [sp]
   bl    handle_exception
+
+  add   x0, sp, #16
+  bl    context_restore
+  ldr   lr, [sp]
+  add   sp, sp, #800
+
   ret
 
 
 .global context_restore
 context_restore:
-	ldp x5, x6, [sp, #16]
-	ldp x3, x4, [sp]
+	ldp    x5, x6, [x0, #16]
+	ldp    x3, x4, [x0]
   msr    ELR_EL1, x3
 	msr    SPSR_EL1, x4
 	msr    SP_EL0, x5
 	msr    TPIDR_EL0, x6
 
-  ldp   x29, x29, [sp, #768]
-  ldp   x27, x28, [sp, #752]
-  ldp   x25, x26, [sp, #736]
-  ldp   x23, x24, [sp, #720]
-  ldp   x21, x22, [sp, #704]
-  ldp   x19, x20, [sp, #688]
-  ldp   x17, x18, [sp, #672]
-  ldp   x15, x16, [sp, #656]
-  ldp   x13, x14, [sp, #640]
-  ldp   x11, x12, [sp, #624]
-  ldp   x9, x10, [sp, #608]
-  ldp   x7, x8, [sp, #592]
-  ldp   x5, x6, [sp, #576]
-  ldp   x3, x4, [sp, #560]
-  ldp   x1, x2, [sp, #544]
-  ldp   q30, q31, [sp, #512]
-  ldp   q28, q29, [sp, #480]
-  ldp   q26, q27, [sp, #448]
-  ldp   q24, q25, [sp, #416]
-  ldp   q22, q23, [sp, #384]
-  ldp   q20, q21, [sp, #352]
-  ldp   q18, q19, [sp, #320]
-  ldp   q16, q17, [sp, #288]
-  ldp   q14, q15, [sp, #256]
-  ldp   q12, q13, [sp, #224]
-  ldp   q10, q11, [sp, #192]
-  ldp   q8, q9, [sp, #160]
-  ldp   q6, q7, [sp, #128]
-  ldp   q4, q4, [sp, #96]
-  ldp   q2, q3, [sp, #64]
-  ldp   q0, q1, [sp, #32]
+  ldp   q28, q29, [x0, #480]
+  ldp   q26, q27, [x0, #448]
+  ldp   q24, q25, [x0, #416]
+  ldp   q22, q23, [x0, #384]
+  ldp   q20, q21, [x0, #352]
+  ldp   q18, q19, [x0, #320]
+  ldp   q16, q17, [x0, #288]
+  ldp   q14, q15, [x0, #256]
+  ldp   q12, q13, [x0, #224]
+  ldp   q10, q11, [x0, #192]
+  ldp   q8, q9, [x0, #160]
+  ldp   q6, q7, [x0, #128]
+  ldp   q4, q5, [x0, #96]
+  ldp   q2, q3, [x0, #64]
+  ldp   q0, q1, [x0, #32]
 
-  add   sp, sp, 784
+  add   x0, x0, #512
+
+  ldr   x29, [x0, #256]
+	ldp   x27, x28, [x0, #240]
+	ldp   x25, x26, [x0, #224]
+	ldp   x23, x24, [x0, #208]
+	ldp   x21, x22, [x0, #192]
+	ldp   x19, x20, [x0, #176]
+	ldp   x17, x18, [x0, #160]
+	ldp   x15, x16, [x0, #144]
+	ldp   x13, x14, [x0, #128]
+	ldp   x11, x12, [x0, #112]
+	ldp   x9, x10, [x0, #96]
+	ldp   x7, x8, [x0, #80]
+	ldp   x5, x6, [x0, #64]
+	ldp   x3, x4, [x0, #48]
+	ldp   x1, x2, [x0, #32]
+	ldp   q30, q31, [x0]
+
+  sub x0, x0, #512
+
   ret
 
 #define HANDLER(source, kind) \

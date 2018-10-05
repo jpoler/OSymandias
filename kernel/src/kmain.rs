@@ -63,15 +63,5 @@ pub extern "C" fn kmain() {
     timer::spin_sleep_ms(1000);
     ALLOCATOR.initialize();
     FILE_SYSTEM.initialize();
-
-    kprintln!("{:x}", unsafe { aarch64::current_el() });
-    kprintln!("{:x}", aarch64::sctlr());
-
-    unsafe {
-        asm!("brk 2" :::: "volatile");
-    }
-
-    loop {
-        shell::shell(&::FILE_SYSTEM, ">");
-    }
+    SCHEDULER.start();
 }

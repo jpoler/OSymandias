@@ -47,11 +47,13 @@ pub struct Info {
 pub extern "C" fn handle_exception(info: Info, esr: u32, tf: &mut TrapFrame) {
     kprintln!("info: {:?}", info);
     kprintln!("esr: {:x}", esr);
+    kprintln!("tf: {:#?}", tf);
 
     match (info.kind, Syndrome::from(esr)) {
-        (Kind::Synchronous, Syndrome::Brk(x)) => loop {
-            shell::shell(&::FILE_SYSTEM, "?")
-        },
+        (Kind::Synchronous, Syndrome::Brk(x)) => {
+            shell::shell(&::FILE_SYSTEM, "?");
+            tf.elr += 4;
+        }
         (_, syndrome) => panic!("unexpected syndrome: {:?}", syndrome),
     }
 }

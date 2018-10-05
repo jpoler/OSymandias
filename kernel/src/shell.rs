@@ -341,7 +341,6 @@ impl<'a> Command<'a> {
 /// Starts a shell using `prefix` as the prefix for each line. This function
 /// never returns: it is perpetually in a shell loop.
 pub fn shell(fs: &'static FileSystem, prefix: &str) {
-    kprintln!("new shell");
     let shell = Shell::new(fs, prefix);
     shell.repl();
 }

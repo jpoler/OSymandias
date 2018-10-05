@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
 
 use mutex::Mutex;
-use process::{Process, State, Id};
+use process::{Id, Process, State};
+use shell;
 use traps::TrapFrame;
+use FILE_SYSTEM;
 
 /// The `tick` time.
 // FIXME: When you're ready, change this to something more reasonable.
@@ -11,6 +13,22 @@ pub const TICK: u32 = 2 * 1000 * 1000;
 /// Process scheduler for the entire machine.
 #[derive(Debug)]
 pub struct GlobalScheduler(Mutex<Option<Scheduler>>);
+
+extern "C" fn start_shell() {
+    unsafe {
+        asm!("brk 1" :::: "volatile");
+    }
+    unsafe {
+        asm!("brk 2" :::: "volatile");
+    }
+    shell::shell(&FILE_SYSTEM, "user0> ");
+    unsafe {
+        asm!("brk 3" :::: "volatile");
+    }
+    loop {
+        shell::shell(&FILE_SYSTEM, "user1> ");
+    }
+}
 
 impl GlobalScheduler {
     /// Returns an uninitialized wrapper around a local scheduler.
@@ -21,7 +39,11 @@ impl GlobalScheduler {
     /// Adds a process to the scheduler's queue and returns that process's ID.
     /// For more details, see the documentation on `Scheduler::add()`.
     pub fn add(&self, process: Process) -> Option<Id> {
-        self.0.lock().as_mut().expect("scheduler uninitialized").add(process)
+        self.0
+            .lock()
+            .as_mut()
+            .expect("scheduler uninitialized")
+            .add(process)
     }
 
     /// Performs a context switch using `tf` by setting the state of the current
@@ -30,14 +52,32 @@ impl GlobalScheduler {
     /// the documentation on `Scheduler::switch()`.
     #[must_use]
     pub fn switch(&self, new_state: State, tf: &mut TrapFrame) -> Option<Id> {
-        self.0.lock().as_mut().expect("scheduler uninitialized").switch(new_state, tf)
+        self.0
+            .lock()
+            .as_mut()
+            .expect("scheduler uninitialized")
+            .switch(new_state, tf)
     }
 
     /// Initializes the scheduler and starts executing processes in user space
     /// using timer interrupt based preemptive scheduling. This method should
     /// not return under normal conditions.
     pub fn start(&self) {
-        unimplemented!("GlobalScheduler::start()")
+        let mut process = Process::new().expect("first process");
+        let tf = &mut *(process.trap_frame);
+        tf.sp = process.stack.top().as_u64();
+        tf.elr = start_shell as *const fn() as u64;
+        // spsr is already in the proper state when zeroed
+        unsafe {
+            asm!("mov x0, $0
+                  bl  context_restore
+                  ldr x0, =_start
+                  add sp, x0, #0
+                  mov x0, #0
+                  eret"
+                 :: "r"(tf)
+                 :: "volatile");
+        }
     }
 }
 

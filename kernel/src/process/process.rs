@@ -1,5 +1,5 @@
+use process::{Stack, State};
 use traps::TrapFrame;
-use process::{State, Stack};
 
 /// Type alias for the type of a process ID.
 pub type Id = u64;
@@ -22,7 +22,13 @@ impl Process {
     /// If enough memory could not be allocated to start the process, returns
     /// `None`. Otherwise returns `Some` of the new `Process`.
     pub fn new() -> Option<Process> {
-        unimplemented!("Process::new()")
+        let stack = Stack::new()?;
+        let trap_frame: Box<TrapFrame> = Box::new(Default::default());
+        Some(Process {
+            trap_frame,
+            stack,
+            state: State::Ready,
+        })
     }
 
     /// Returns `true` if this process is ready to be scheduled.
