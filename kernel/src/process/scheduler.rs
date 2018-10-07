@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
 
 use mutex::Mutex;
+use pi::interrupt::{Controller, Interrupt};
 use process::{Id, Process, State};
 use shell;
+use timer;
 use traps::TrapFrame;
 use FILE_SYSTEM;
 
@@ -15,16 +17,6 @@ pub const TICK: u32 = 2 * 1000 * 1000;
 pub struct GlobalScheduler(Mutex<Option<Scheduler>>);
 
 extern "C" fn start_shell() {
-    unsafe {
-        asm!("brk 1" :::: "volatile");
-    }
-    unsafe {
-        asm!("brk 2" :::: "volatile");
-    }
-    shell::shell(&FILE_SYSTEM, "user0> ");
-    unsafe {
-        asm!("brk 3" :::: "volatile");
-    }
     loop {
         shell::shell(&FILE_SYSTEM, "user1> ");
     }
@@ -68,6 +60,13 @@ impl GlobalScheduler {
         tf.sp = process.stack.top().as_u64();
         tf.elr = start_shell as *const fn() as u64;
         // spsr is already in the proper state when zeroed
+
+        let mut interrupt_controller = Controller::new();
+        interrupt_controller.enable(Interrupt::Timer1);
+
+        // 2000 us * 1000 ms = 2 s
+        timer::tick_in(TICK);
+
         unsafe {
             asm!("mov x0, $0
                   bl  context_restore

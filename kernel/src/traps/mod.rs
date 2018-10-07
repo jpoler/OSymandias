@@ -54,6 +54,14 @@ pub extern "C" fn handle_exception(info: Info, esr: u32, tf: &mut TrapFrame) {
             shell::shell(&::FILE_SYSTEM, "?");
             tf.elr += 4;
         }
+        (Kind::Irq, _) => {
+            let int = if Controller::new().is_pending(Interrupt::Timer1) {
+                Interrupt::Timer1
+            } else {
+                panic!("unexpected interrupt");
+            };
+            handle_irq(int, tf);
+        }
         (_, syndrome) => panic!("unexpected syndrome: {:?}", syndrome),
     }
 }
