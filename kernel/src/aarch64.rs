@@ -52,6 +52,13 @@ pub fn nop() {
     }
 }
 
+// wait for interrupt
+pub fn wfi() {
+    unsafe {
+        asm!("wfi" :::: "volatile");
+    }
+}
+
 pub fn sctlr() -> u64 {
     let sctlr_reg: u64;
     unsafe { asm!("mrs $0, sctlr_el1" : "=r"(sctlr_reg)) }
