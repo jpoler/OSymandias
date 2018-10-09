@@ -1,4 +1,5 @@
 use process::{Stack, State};
+use std::mem;
 use traps::TrapFrame;
 
 /// Type alias for the type of a process ID.
@@ -46,6 +47,17 @@ impl Process {
     ///
     /// Returns `false` in all other cases.
     pub fn is_ready(&mut self) -> bool {
-        unimplemented!("Process::is_ready()")
+        let replace = match mem::replace(&mut self.state, State::Ready) {
+            State::Ready => return true,
+            State::Running => State::Running,
+            State::Waiting(mut f) => if f(self) {
+                return true;
+            } else {
+                State::Waiting(f)
+            },
+        };
+
+        mem::replace(&mut self.state, replace);
+        false
     }
 }
