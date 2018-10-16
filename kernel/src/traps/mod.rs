@@ -54,6 +54,9 @@ pub extern "C" fn handle_exception(info: Info, esr: u32, tf: &mut TrapFrame) {
             shell::shell(&::FILE_SYSTEM, "?");
             tf.elr += 4;
         }
+        (Kind::Synchronous, Syndrome::Svc(x)) => {
+            let elapsed = handle_syscall(x, tf);
+        }
         (Kind::Irq, _) => {
             let int = if Controller::new().is_pending(Interrupt::Timer1) {
                 Interrupt::Timer1

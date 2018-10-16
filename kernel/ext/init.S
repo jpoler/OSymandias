@@ -163,14 +163,13 @@ context_save:
 	sub   sp, sp, #16
 	str   lr, [sp]
   bl    handle_exception
-
   add   x0, sp, #16
+
   bl    context_restore
   ldr   lr, [sp]
   add   sp, sp, #800
 
   ret
-
 
 .global context_restore
 context_restore:

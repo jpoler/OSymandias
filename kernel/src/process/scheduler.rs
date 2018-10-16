@@ -118,6 +118,10 @@ impl Scheduler {
         }
     }
 
+    fn current(&mut self) -> Option<&mut Process> {
+        self.processes.get_mut(0)
+    }
+
     /// Adds a process to the scheduler's queue and returns that process's ID if
     /// a new process can be scheduled. The process ID is newly allocated for
     /// the process and saved in its `trap_frame`. If no further processes can
@@ -147,7 +151,7 @@ impl Scheduler {
             .position(|process| process.is_ready())?;
         let mut back: VecDeque<Process> = self.processes.drain(..index).collect();
         self.processes.append(&mut back);
-        self.processes.get_mut(0)
+        self.current()
     }
 
     /// Sets the current process's state to `new_state`, finds the next process

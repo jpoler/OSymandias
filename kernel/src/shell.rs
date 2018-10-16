@@ -9,6 +9,8 @@ use std::io;
 use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
 use std::str::from_utf8;
+use std::str::FromStr;
+use syscall;
 
 trait CanonicalJoin
 where
@@ -123,6 +125,7 @@ impl<'a> Shell<'a> {
             "cd" => self.cd(args),
             "ls" => self.ls(args),
             "cat" => self.cat(args),
+            "sleep" => self.sleep(args),
             path => Err(Error::UnknownCommand {
                 command: path.to_string(),
             }),
@@ -221,6 +224,19 @@ impl<'a> Shell<'a> {
             }).collect::<io::Result<Vec<_>>>()?;
         Ok(())
     }
+
+    fn sleep(&self, args: &[&str]) -> Result<(), Error> {
+        if args.len() != 1 {
+            return Err(Error::InvalidArgs {
+                message: "usage: sleep <duration>".into(),
+            });
+        }
+        let ms = u32::from_str(args[0]).map_err(|_| Error::InvalidArgs {
+            message: "invalid u32".into(),
+        })?;
+        syscall::sleep(ms)?;
+        Ok(())
+    }
 }
 
 /// Error type for `Command` parse failures.
@@ -234,11 +250,18 @@ enum Error {
     InvalidUtf8,
     Io { error: io::Error },
     Path { path: PathBuf, message: String },
+    Syscall { error: syscall::Error },
 }
 
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Error::Io { error }
+    }
+}
+
+impl From<syscall::Error> for Error {
+    fn from(error: syscall::Error) -> Self {
+        Error::Syscall { error }
     }
 }
 
@@ -257,6 +280,7 @@ impl fmt::Display for Error {
                 ref path,
                 ref message,
             } => write!(f, "{}: {}", path.display(), message),
+            &Syscall { ref error } => write!(f, "syscall: {:?}", error),
         }
     }
 }

@@ -32,6 +32,7 @@ pub mod lang_items;
 pub mod mutex;
 pub mod process;
 pub mod shell;
+pub mod syscall;
 pub mod traps;
 pub mod vm;
 
@@ -56,7 +57,12 @@ pub static FILE_SYSTEM: FileSystem = FileSystem::uninitialized();
 pub static SCHEDULER: GlobalScheduler = GlobalScheduler::uninitialized();
 
 // TODO: enable data cache with sctlr
+//
 //       must invalidate cache before enabling
+//
+//       Before this is done, it looks like the atomic accesses in this mutex
+//       implementation need to be changed to use Aquire Release semantics.
+//
 #[no_mangle]
 #[cfg(not(test))]
 pub extern "C" fn kmain() {
