@@ -2,10 +2,12 @@ TARGET ?= aarch64-none-elf
 CROSS ?= $(TARGET)
 
 CC := $(CROSS)-gcc
+TTYWRITE ?= ttywrite
+PI_TTY ?= /dev/tty.SLAB_USBtoUART
 CCFLAGS ?= -Wall -O2 -nostdlib -nostartfiles -ffreestanding -pie -fpie
-# LDFLAGS ?= --gc-sections -static -pie -nostdlib -nostartfiles --no-dynamic-linker
 LDFLAGS ?= --gc-sections -static -nostdlib -nostartfiles --no-dynamic-linker
 XARGO ?= CARGO_INCREMENTAL=0 RUST_TARGET_PATH="$(shell pwd)" xargo
+CARGO ?= cargo
 
 LD_LAYOUT := ext/layout.ld
 
@@ -14,7 +16,11 @@ RUST_BUILD_DIR := target/$(TARGET)
 RUST_DEBUG_LIB := $(RUST_BUILD_DIR)/debug/lib$(RUST_BINARY).a
 RUST_RELEASE_LIB := $(RUST_BUILD_DIR)/release/lib$(RUST_BINARY).a
 
-RUST_DEPS = Xargo.toml Cargo.toml build.rs $(LD_LAYOUT) src/*
+RUST_LIB_DEPS = ../pi/src/* ../pi/src/*/** \
+				../../1-shell/stack-vec/src/* \
+				../../2-fs/fat32/src/* ../../2-fs/fat32/src/*/**
+
+RUST_DEPS = Xargo.toml Cargo.toml build.rs $(LD_LAYOUT) src/* $(RUST_LIB_DEPS)
 EXT_DEPS = $(BUILD_DIR)/init.o
 
 FIRMWARE_DIR := ../files/firmware
@@ -23,9 +29,8 @@ KERNEL := $(BUILD_DIR)/$(RUST_BINARY)
 SD_CARD := /Volumes/boot
 SD_KERNEL := $(SD_CARD)/kernel8.img
 RUST_LIB := $(BUILD_DIR)/$(RUST_BINARY).a
-UART := /dev/tty.SLAB_USBtoUART
 
-.PHONY: all clean check copy copy-umount watch
+.PHONY: all test clean check copy copy-umount watch install
 
 VPATH = ext
 
@@ -33,6 +38,12 @@ all: $(KERNEL).hex $(KERNEL).bin
 
 check:
 	@$(XARGO) check --target=$(TARGET)
+
+test:
+	@$(CARGO) test
+
+install: $(KERNEL).bin
+	$(TTYWRITE) -m write -t 60 -i $< $(PI_TTY)
 
 $(RUST_DEBUG_LIB): $(RUST_DEPS)
 	@echo "+ Building $@ [xargo]"
@@ -91,6 +102,3 @@ umount:
 	diskutil umount $(SD_CARD)
 
 copy-umount: copy umount
-
-bootload: clean all
-	ttywrite -m write -i $(KERNEL).bin -t 60 $(UART)

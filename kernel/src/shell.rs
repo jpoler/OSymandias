@@ -1,30 +1,241 @@
-use self::builtins::resolve_builtin;
 use console::{_print, CONSOLE};
+use fat32::traits::{
+    Dir as DirTrait, Entry as EntryTrait, FileSystem as FileSystemTrait, Metadata as MetadataTrait,
+};
+use fs::FileSystem;
 use stack_vec::StackVec;
 use std::fmt;
 use std::io;
+use std::io::{BufRead, BufReader};
+use std::path::{Component, Path, PathBuf};
 use std::str::from_utf8;
+use std::str::FromStr;
+use syscall;
 
-mod builtins {
-    use console::_print;
+trait CanonicalJoin
+where
+    Self: Sized,
+{
+    fn canonical_join(&self, other: &Self) -> Result<Self, Error>;
+}
 
-    pub fn resolve_builtin(cmd: &str) -> Option<fn(&mut [&str])> {
-        match cmd {
-            "echo" => Some(echo),
-            _ => None,
+impl CanonicalJoin for PathBuf {
+    fn canonical_join(&self, other: &Self) -> Result<Self, Error> {
+        let mut pathbuf = self.clone();
+
+        for component in Path::new(other).components() {
+            match component {
+                Component::Prefix(prefix) => {
+                    return Err(Error::Path {
+                        path: PathBuf::from(other),
+                        message: format!("prefix not supported: {:?}", prefix),
+                    })
+                }
+                Component::RootDir => {
+                    pathbuf.reset();
+                }
+                Component::ParentDir => {
+                    if let None = pathbuf.parent() {
+                        return Err(Error::Path {
+                            path: PathBuf::from(other),
+                            message: "invalid target directory".into(),
+                        });
+                    }
+
+                    pathbuf.pop();
+                }
+                Component::CurDir => {}
+                Component::Normal(normal) => {
+                    pathbuf.push(normal);
+                }
+            }
+        }
+
+        Ok(pathbuf)
+    }
+}
+
+trait Reset {
+    fn reset(&mut self) {}
+}
+
+impl Reset for PathBuf {
+    fn reset(&mut self) {
+        while self.pop() {}
+    }
+}
+
+enum EvalStatus {
+    Continue,
+    Terminate,
+}
+
+struct Shell<'a> {
+    prefix: &'a str,
+    cwd: PathBuf,
+    fs: &'static FileSystem,
+}
+
+impl<'a> Shell<'a> {
+    pub fn new(fs: &'static FileSystem, prefix: &'a str) -> Shell<'a> {
+        Shell {
+            prefix,
+            cwd: PathBuf::from("/"),
+            fs,
         }
     }
 
-    fn echo(args: &mut [&str]) {
-        let args = &args[1..];
-        if args.len() == 0 {
-            kprintln!("");
-        } else {
-            for arg in &args[..args.len() - 1] {
-                kprint!("{} ", arg);
+    fn repl(mut self) {
+        loop {
+            kprint!("[{}] {} ", self.cwd.display(), self.prefix);
+            match self.eval() {
+                Ok(EvalStatus::Terminate) => return,
+                Ok(EvalStatus::Continue) => {}
+                Err(err) => kprintln!("{}", err),
             }
-            kprintln!("{}", args[args.len() - 1])
         }
+    }
+
+    fn eval(&mut self) -> Result<EvalStatus, Error> {
+        let mut bufio = BufferedIo::new();
+        let mut line: [u8; 512] = [0; 512];
+        let mut args: [&str; 64] = [""; 64];
+
+        let n = match bufio.readline(&mut line)? {
+            0 => return Ok(EvalStatus::Continue),
+            n => n,
+        };
+
+        let cmd_str = from_utf8(&mut line[..n]).map_err(|_| Error::InvalidUtf8)?;
+        let cmd = Command::parse(cmd_str, &mut args)?;
+
+        if cmd.path() == "exit" {
+            return Ok(EvalStatus::Terminate);
+        }
+
+        self.dispatch(&cmd)?;
+        Ok(EvalStatus::Continue)
+    }
+
+    pub fn dispatch(&mut self, command: &Command) -> Result<(), Error> {
+        let args = &command.args[1..];
+        match command.path() {
+            "echo" => self.echo(args),
+            "pwd" => self.pwd(args),
+            "cd" => self.cd(args),
+            "ls" => self.ls(args),
+            "cat" => self.cat(args),
+            "sleep" => self.sleep(args),
+            path => Err(Error::UnknownCommand {
+                command: path.to_string(),
+            }),
+        }
+    }
+
+    fn echo(&self, args: &[&str]) -> Result<(), Error> {
+        kprintln!("{}", args.join(" "));
+        Ok(())
+    }
+
+    fn pwd(&self, args: &[&str]) -> Result<(), Error> {
+        if args.len() > 0 {
+            return Err(Error::InvalidArgs {
+                message: "usage: pwd".into(),
+            });
+        }
+
+        kprintln!("{}", self.cwd.display());
+
+        Ok(())
+    }
+
+    fn cd(&mut self, args: &[&str]) -> Result<(), Error> {
+        if args.len() != 1 {
+            return Err(Error::InvalidArgs {
+                message: "usage: cd <directory>".into(),
+            });
+        }
+
+        let cwd = self.cwd.canonical_join(&PathBuf::from(args[0]))?;
+
+        self.fs.open_dir(&cwd)?;
+
+        self.cwd = cwd;
+
+        Ok(())
+    }
+
+    fn ls(&self, args: &[&str]) -> Result<(), Error> {
+        let usage_err = || {
+            Err(Error::InvalidArgs {
+                message: "usage: ls [-a] [directory]".into(),
+            })
+        };
+
+        let (path, show_hidden) = match args.len() {
+            0 => (self.cwd.clone(), false),
+            1 => (PathBuf::from(args[0]), false),
+            2 => {
+                if args[0] != "-a" {
+                    return usage_err();
+                }
+                (PathBuf::from(args[1]), true)
+            }
+            _ => return usage_err(),
+        };
+
+        let path = if path.is_relative() {
+            self.cwd.canonical_join(&path)?
+        } else {
+            path
+        };
+
+        self.fs
+            .open_dir(path)?
+            .entries()?
+            .filter(|entry| show_hidden || !entry.metadata().hidden())
+            .for_each(|entry| kprintln!("{}", entry));
+        Ok(())
+    }
+
+    fn cat(&self, args: &[&str]) -> Result<(), Error> {
+        if args.len() == 0 {
+            return Err(Error::InvalidArgs {
+                message: "usage: cat <file> [file]..".into(),
+            });
+        }
+
+        args.iter()
+            .map(|arg| self.cwd.canonical_join(&PathBuf::from(arg)))
+            .collect::<Result<Vec<_>, Error>>()?
+            .iter()
+            .filter_map(|path| match self.fs.open_file(path) {
+                Ok(file) => Some(file),
+                Err(err) => {
+                    kprintln!("{}: {}", path.display(), err);
+                    None
+                }
+            }).map(|file| {
+                let file = BufReader::new(file);
+                for line in file.lines() {
+                    kprintln!("{}", line?);
+                }
+                Ok(())
+            }).collect::<io::Result<Vec<_>>>()?;
+        Ok(())
+    }
+
+    fn sleep(&self, args: &[&str]) -> Result<(), Error> {
+        if args.len() != 1 {
+            return Err(Error::InvalidArgs {
+                message: "usage: sleep <duration>".into(),
+            });
+        }
+        let ms = u32::from_str(args[0]).map_err(|_| Error::InvalidArgs {
+            message: "invalid u32".into(),
+        })?;
+        syscall::sleep(ms)?;
+        Ok(())
     }
 }
 
@@ -33,15 +244,24 @@ mod builtins {
 enum Error {
     Empty,
     TooManyArgs,
+    InvalidArgs { message: String },
     LineTooLong,
-    UnknownCommand,
+    UnknownCommand { command: String },
     InvalidUtf8,
     Io { error: io::Error },
+    Path { path: PathBuf, message: String },
+    Syscall { error: syscall::Error },
 }
 
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Error::Io { error }
+    }
+}
+
+impl From<syscall::Error> for Error {
+    fn from(error: syscall::Error) -> Self {
+        Error::Syscall { error }
     }
 }
 
@@ -51,10 +271,16 @@ impl fmt::Display for Error {
         match self {
             &Empty => write!(f, "empty command"),
             &TooManyArgs => write!(f, "too many arguments"),
+            &InvalidArgs { ref message } => write!(f, "invalid arguments -- {}", message),
             &LineTooLong => write!(f, "line too long"),
-            &UnknownCommand => write!(f, "unknown command"),
+            &UnknownCommand { ref command } => write!(f, "unknown command -- {}", command),
             &InvalidUtf8 => write!(f, "invalid utf8"),
             &Io { ref error } => write!(f, "{}", error),
+            &Path {
+                ref path,
+                ref message,
+            } => write!(f, "{}: {}", path.display(), message),
+            &Syscall { ref error } => write!(f, "syscall: {:?}", error),
         }
     }
 }
@@ -136,34 +362,9 @@ impl<'a> Command<'a> {
     }
 }
 
-fn eval(prefix: &str) -> Result<(), Error> {
-    let mut bufio = BufferedIo::new();
-    let mut line: [u8; 512] = [0; 512];
-    let mut args: [&str; 64] = [""; 64];
-
-    kprint!("{}", prefix);
-
-    let n = match bufio.readline(&mut line)? {
-        0 => return Ok(()),
-        n => n,
-    };
-
-    let cmd_str = from_utf8(&mut line[..n]).map_err(|_| Error::InvalidUtf8)?;
-    let mut cmd = Command::parse(cmd_str, &mut args)?;
-
-    let f = resolve_builtin(cmd.path()).ok_or(Error::UnknownCommand)?;
-
-    f(&mut cmd.args[..]);
-
-    Ok(())
-}
-
 /// Starts a shell using `prefix` as the prefix for each line. This function
 /// never returns: it is perpetually in a shell loop.
-pub fn shell(prefix: &str) -> ! {
-    loop {
-        if let Err(err) = eval(prefix) {
-            kprintln!("\nerror: {}", err)
-        }
-    }
+pub fn shell(fs: &'static FileSystem, prefix: &str) {
+    let shell = Shell::new(fs, prefix);
+    shell.repl();
 }
